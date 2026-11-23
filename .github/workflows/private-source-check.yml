@@ -49,6 +49,6 @@ jobs:
             echo "No compilation or artifact generation was attempted."
           else
             echo "Build manifest paths:"
-            printf '%s\\n' "${manifests[@]}"
+            printf '%s\n' "${manifests[@]}"
             echo "Manifest discovery completed. No source files were printed."
           fi
