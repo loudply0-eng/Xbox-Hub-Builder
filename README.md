@@ -16,7 +16,7 @@ Public repository for reviewed build automation only.
 
 Both workflows run only from `main`, use the dedicated read-only SSH deploy key stored as `SOURCE_REPO_DEPLOY_KEY`, and set `persist-credentials: false`. The Windows build workflow does not upload source or build artifacts. It is a compile check, not a signed release pipeline.
 
-The private app currently contains an early WPF shell. The in-app updater, runtime integrations, packaging, and code signing are not production-ready.
+The private app currently contains an early WPF shell. Its first Windows WPF build check succeeded on 2026-11-23 (run [45225948596](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45225948596)). No artifacts were uploaded. The in-app updater, runtime integrations, packaging, and code signing are not production-ready.
 
 ## Secret handling
 
