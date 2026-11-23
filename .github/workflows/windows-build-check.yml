@@ -1,0 +1,58 @@
+name: Windows WPF build check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xbox-hub-windows-build
+  cancel-in-progress: true
+
+jobs:
+  build-private-windows-app:
+    # This job uses the private-source deploy key. Never run it from untrusted refs.
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out private Xbox Hub source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: loudply0-eng/Xbox-Hub-for-PC
+          ref: main
+          ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
+          path: private-source
+          persist-credentials: false
+          submodules: false
+          lfs: false
+          fetch-depth: 1
+
+      - name: Set up .NET 10 SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore Windows desktop project
+        shell: pwsh
+        run: |
+          $project = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
+          if (-not (Test-Path $project)) {
+            throw "Xbox Hub WPF project file is missing."
+          }
+          dotnet restore $project
+
+      - name: Build WPF application
+        shell: pwsh
+        run: |
+          $project = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
+          dotnet build $project --configuration Release --no-restore --verbosity minimal
+
+      - name: Report build result without exposing source
+        if: success()
+        shell: pwsh
+        run: |
+          Write-Host "Xbox Hub for PC Windows WPF build succeeded."
+          Write-Host "No source files or build artifacts were uploaded."
