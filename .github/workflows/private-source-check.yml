@@ -41,14 +41,13 @@ jobs:
           echo "Source repository: loudply0-eng/Xbox-Hub-for-PC"
           echo "Source ref: main"
 
-          mapfile -t manifests < <(find private-source -type f \( -name '*.sln' -o -name '*.slnx' -o -name '*.csproj' -o -name 'pubspec.yaml' -o -name 'package.json' \) -not -path '*/.git/*' -print | sort)
+          manifest_count="$(find private-source -type f \( -name '*.sln' -o -name '*.slnx' -o -name '*.csproj' -o -name 'pubspec.yaml' -o -name 'package.json' \) -not -path '*/.git/*' -print | wc -l | tr -d ' ')"
 
-          if (( ${#manifests[@]} == 0 )); then
+          if [[ "$manifest_count" == "0" ]]; then
             echo "No application build manifest found."
             echo "The private repository is currently a planning scaffold."
             echo "No compilation or artifact generation was attempted."
           else
-            echo "Build manifest paths:"
-            printf '%s\n' "${manifests[@]}"
-            echo "Manifest discovery completed. No source files were printed."
+            echo "Found $manifest_count possible build manifest(s)."
+            echo "File paths and source contents were not emitted."
           fi
