@@ -1,6 +1,6 @@
 Xbox Hub private-source build validation trigger
-Request: validate preview 0.1.6 updater reliability and automated transaction tests
-Source version: 0.1.6-preview.1
-Source commit: d99e0cfbf4517f29c3858978eed956b8e47b882f
-Purpose: run Windows x64 restore, self-contained publish, ZIP layout validation, and updater replacement/rollback tests against the current private main branch.
-Security: no private source, app package, build artifact, signing key, or credential is uploaded from the runner.
+Request: validate preview 0.1.7 in-app download progress and update transaction tests
+Source version: 0.1.7-preview.1
+Source commit: 91c1de41466b0a20e01b16fab61a92939a880d9d
+Purpose: run Windows x64 restore, self-contained publish, package validation, and updater replacement/rollback tests against current private main.
+Security: the runner does not upload private source, app packages, build artifacts, signing keys, or credentials.
