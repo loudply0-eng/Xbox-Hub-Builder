@@ -35,6 +35,24 @@ jobs:
           lfs: false
           fetch-depth: 1
 
+      - name: Validate local release-key helper syntax without executing it
+        shell: pwsh
+        run: |
+          $helper = "private-source/tools/New-XboxHubReleaseKey.ps1"
+          if (-not (Test-Path -LiteralPath $helper)) { throw "Local release-key helper is missing." }
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $helper).Path,
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.ToString() }
+            throw "Release-key helper has PowerShell parse errors."
+          }
+          Write-Host "Release-key helper parsed successfully; it was not executed and no key was generated."
+
       - name: Set up .NET 10 SDK
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
         with:
