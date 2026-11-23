@@ -95,9 +95,11 @@ jobs:
 
           $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
           try {
-            $names = @($archive.Entries | ForEach-Object { $_.FullName } | Sort-Object)
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
             if ($archive.Entries.Count -ne 2) { throw "Package must contain exactly two executables." }
-            if (($names -join ",") -ne "XboxHub.Updater.exe,XboxHub.exe") { throw "Package file layout is unexpected." }
+            if ($names -notcontains "XboxHub.exe" -or $names -notcontains "XboxHub.Updater.exe") {
+              throw "Package file layout is unexpected."
+            }
           }
           finally {
             $archive.Dispose()
