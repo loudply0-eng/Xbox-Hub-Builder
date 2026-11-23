@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # Review SHA-pinned GitHub Actions updates before merging.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
