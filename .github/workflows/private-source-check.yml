@@ -1,0 +1,59 @@
+name: Private source connectivity check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-source-check
+  cancel-in-progress: true
+
+jobs:
+  inspect-private-source:
+    # A public branch or fork must never run a workflow with the private-source secret.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out private application repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: loudply0-eng/Xbox-Hub-for-PC
+          ref: main
+          token: ${{ secrets.SOURCE_REPO_READ_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          submodules: false
+          lfs: false
+          fetch-depth: 1
+
+      - name: Inspect build manifests without printing source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f private-source/README.md
+
+          echo "Private source checkout succeeded."
+          echo "Source repository: loudply0-eng/Xbox-Hub-for-PC"
+          echo "Source ref: main"
+
+          mapfile -t manifests < <(
+            find private-source -type f \\
+              \\( -name '*.sln' -o -name '*.slnx' -o -name '*.csproj' \\
+                 -o -name 'pubspec.yaml' -o -name 'package.json' \\) \\
+              -not -path '*/.git/*' -print | sort
+          )
+
+          if (( ${#manifests[@]} == 0 )); then
+            echo "No application build manifest found."
+            echo "The private repository is currently a planning scaffold."
+            echo "No compilation or artifact generation was attempted."
+          else
+            echo "Build manifest paths:"
+            printf '%s\\n' "${manifests[@]}"
+            echo "Manifest discovery completed. No source files were printed."
+          fi
