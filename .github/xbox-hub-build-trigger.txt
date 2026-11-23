@@ -1,6 +1,6 @@
 Xbox Hub private-source build validation trigger
-Request: validate latest private main after adding offline RSA key provisioning, host operations guide, and read-only host diagnostic
+Request: validate latest private main after offline RSA key provisioning and update-host diagnostics
 Source version: 0.1.7-preview.1
-Source commit: a2c47b1b396cf610b90de8248184debe9f9f53f8
+Source commit: 12ff57e0e28b7204cb674b7909c7c86ed057e0be
 Scope: Windows x64 restore, self-contained app/updater publish, exact two-file package validation, updater transaction tests, and PowerShell parser-only validation of New-XboxHubReleaseKey.ps1.
 Security: parser does not execute the helper or generate keys. No private source, packages, artifacts, signing keys, TLS keys, Cloudflare tokens, or credentials are uploaded.
