@@ -1,6 +1,5 @@
 Xbox Hub private-source build validation trigger
-Request: validate signed updater and per-user installer helper
-Source version: 0.1.5-preview.1
+Request: verify Xbox Hub 0.1.5-preview.1 signed update and rollback pipeline
 Source commit: a107c0c78c278afb3e96e292ca11102df3a9496c
-Purpose: start a Windows x64 restore, self-contained publish, and two-file update ZIP validation against the current private main branch.
-Security: no source archive, application binary, private log, signing key, or credential is published by this workflow.
+Purpose: Windows x64 restore, self-contained publish, two-file ZIP validation, and deterministic rollback test.
+Security: no source archive, application binary, package, private log, signing key, or credential is published by this workflow.
