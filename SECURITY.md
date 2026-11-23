@@ -1,25 +1,29 @@
 # Security Policy
 
-This is a public build-automation repository that has access to a private source repository through a dedicated read-only SSH deploy key. Treat every workflow change as security-sensitive.
+This public repository contains workflows that can read the private Xbox Hub source repository. Treat every workflow change as security-sensitive.
 
 ## Credential rules
 
-- The source credential must be a deploy key registered only on `loudply0-eng/Xbox-Hub-for-PC`.
-- The deploy key must be read-only; never enable write access.
+- The source credential must be a dedicated deploy key registered only on `loudply0-eng/Xbox-Hub-for-PC`.
+- The deploy key must remain read-only.
 - Store the private key only as the Actions secret `SOURCE_REPO_DEPLOY_KEY`.
-- Keep the public key registered as a deploy key on the private source repository.
 - Never echo, print, commit, or upload the private key.
 - Rotate and replace the deploy key immediately if exposure is suspected.
 
 ## Workflow rules
 
-- The private-source check is manual-only and restricted to the default `main` branch.
-- Do not add `pull_request`, `pull_request_target`, `workflow_run`, or untrusted external triggers to jobs that access private-source secrets.
-- Keep `GITHUB_TOKEN` permissions at the minimum required.
-- Pin third-party Actions to full commit SHAs and review upstream changes before updating pins.
-- Do not run scripts, package hooks, build steps, or downloaded binaries from the private source until their security impact has been reviewed.
-- Do not upload private source, source archives, signing files, or logs containing sensitive paths or data as artifacts.
-- Keep signing keys and release credentials out of this public repository.
+- Private-source workflows must be manually dispatched from the trusted `main` branch only.
+- Do not add `pull_request`, `pull_request_target`, `workflow_run`, or untrusted external triggers to jobs that access the private-source secret.
+- Keep `GITHUB_TOKEN` permissions at the minimum required (`contents: read` for current workflows).
+- Pin third-party Actions to reviewed full commit SHAs and review updates before merging.
+- Keep `persist-credentials: false` on private-source checkout.
+- Do not print private source, credentials, or secret-bearing URLs.
+- Do not upload source trees, private logs, signing files, or credentials as artifacts.
+- Do not add release-signing secrets to this public repository.
+
+## Trusted-branch risk
+
+Anyone who can change a secret-bearing workflow on `main` and run it with access to the secret could attempt to exfiltrate private source or the credential. Restrict write access to trusted maintainers and review every workflow change before dispatch.
 
 ## Reporting
 
