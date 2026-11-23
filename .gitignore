@@ -1,0 +1,48 @@
+# Never commit private application source or local checkout
+Xbox-Hub-for-PC/
+private-source/
+source/
+src-private/
+*.source.zip
+
+# Build outputs and caches
+artifacts/
+dist/
+out/
+build/
+bin/
+obj/
+TestResults/
+coverage/
+node_modules/
+.npm/
+.pnpm-store/
+
+# Secrets and signing material
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+*.jks
+*.keystore
+*.snk
+credentials.json
+secrets.json
+token.txt
+id_rsa
+id_ed25519
+
+# Local and IDE files
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.log
+*.tmp
+*.cache
+.DS_Store
+Thumbs.db
