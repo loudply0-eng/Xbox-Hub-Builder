@@ -113,6 +113,63 @@ jobs:
           Write-Host "Package SHA-256: $hash"
           Write-Host "Package is temporary and will not be uploaded."
 
+      - name: Exercise update rollback in a disposable runner directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $updaterExe = Join-Path $env:RUNNER_TEMP "xboxhub-updater-publish/XboxHub.Updater.exe"
+          if (-not (Test-Path -LiteralPath $updaterExe)) { throw "Published updater helper is missing." }
+
+          $testRoot = Join-Path $env:RUNNER_TEMP "XboxHub-Rollback-Test-$([Guid]::NewGuid().ToString('N'))"
+          $installDirectory = Join-Path $testRoot "InstalledApp"
+          $packageDirectory = Join-Path $testRoot "Package"
+          $localUpdates = Join-Path $env:LOCALAPPDATA "XboxHub/Updates"
+          $packagePath = Join-Path $localUpdates "rollback-test-$([Guid]::NewGuid().ToString('N')).zip"
+
+          New-Item -ItemType Directory -Path $installDirectory,$packageDirectory,$localUpdates -Force | Out-Null
+
+          try {
+            # Deliberately invalid executable bytes force the candidate app launch to fail.
+            # The test passes only if the helper restores the exact original file.
+            [byte[]]$oldBytes = New-Object byte[] 1200000
+            [byte[]]$newBytes = New-Object byte[] 1200000
+            [System.Security.Cryptography.RandomNumberGenerator]::Fill($oldBytes)
+            [System.Security.Cryptography.RandomNumberGenerator]::Fill($newBytes)
+
+            $oldApp = Join-Path $installDirectory "XboxHub.exe"
+            [System.IO.File]::WriteAllBytes($oldApp,$oldBytes)
+            [System.IO.File]::WriteAllBytes((Join-Path $packageDirectory "XboxHub.exe"),$newBytes)
+            Copy-Item -LiteralPath $updaterExe -Destination (Join-Path $packageDirectory "XboxHub.Updater.exe")
+
+            $oldHash = (Get-FileHash -LiteralPath $oldApp -Algorithm SHA256).Hash
+            $archivePath = Join-Path $testRoot "rollback-test.zip"
+            Compress-Archive -Path (Join-Path $packageDirectory "*") -DestinationPath $archivePath -CompressionLevel Optimal -Force
+            Copy-Item -LiteralPath $archivePath -Destination $packagePath
+
+            $packageHash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
+            & $updaterExe --apply-update --package $packagePath --install-directory $installDirectory --sha256 $packageHash --version "0.1.5" --parent-pid "2147483647"
+            $updaterExit = $LASTEXITCODE
+
+            if ($updaterExit -eq 0) { throw "The deliberately invalid candidate unexpectedly reported success." }
+            if (-not (Test-Path -LiteralPath $oldApp)) { throw "Rollback did not restore the original XboxHub.exe." }
+
+            $restoredHash = (Get-FileHash -LiteralPath $oldApp -Algorithm SHA256).Hash
+            if ($restoredHash -ne $oldHash) { throw "Rollback restored a file that differs from the original installation." }
+
+            $resultPath = Join-Path $localUpdates "install-result.json"
+            if (-not (Test-Path -LiteralPath $resultPath)) { throw "The updater did not write an installation result." }
+            $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+            if ($result.status -ne "failed") { throw "The updater did not report the expected failed update state." }
+
+            Write-Host "Rollback test passed: invalid candidate rejected and original app restored byte-for-byte."
+          }
+          finally {
+            Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $packagePath -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $localUpdates "install-result.json") -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Report build result without exposing source
         if: success()
         shell: pwsh
