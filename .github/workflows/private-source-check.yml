@@ -41,12 +41,7 @@ jobs:
           echo "Source repository: loudply0-eng/Xbox-Hub-for-PC"
           echo "Source ref: main"
 
-          mapfile -t manifests < <(
-            find private-source -type f \\
-              \\( -name '*.sln' -o -name '*.slnx' -o -name '*.csproj' \\
-                 -o -name 'pubspec.yaml' -o -name 'package.json' \\) \\
-              -not -path '*/.git/*' -print | sort
-          )
+          mapfile -t manifests < <(find private-source -type f \( -name '*.sln' -o -name '*.slnx' -o -name '*.csproj' -o -name 'pubspec.yaml' -o -name 'package.json' \) -not -path '*/.git/*' -print | sort)
 
           if (( ${#manifests[@]} == 0 )); then
             echo "No application build manifest found."
