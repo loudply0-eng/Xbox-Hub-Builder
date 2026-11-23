@@ -1,4 +1,4 @@
-name: Windows WPF build check
+name: Windows WPF build and package validation
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
     # This job uses the private-source deploy key. Never run it from untrusted refs.
     if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Check out private Xbox Hub source
@@ -40,24 +40,80 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Restore Windows desktop project
+      - name: Restore Windows x64 app and updater
         shell: pwsh
         run: |
-          $project = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
-          if (-not (Test-Path $project)) {
-            throw "Xbox Hub WPF project file is missing."
-          }
-          dotnet restore $project
+          $app = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
+          $updater = "private-source/src/XboxHub.Updater/XboxHub.Updater.csproj"
+          if (-not (Test-Path $app)) { throw "Xbox Hub WPF project file is missing." }
+          if (-not (Test-Path $updater)) { throw "Xbox Hub updater helper project file is missing." }
 
-      - name: Build WPF application
+          dotnet restore $app --runtime win-x64
+          if ($LASTEXITCODE -ne 0) { throw "WPF restore failed." }
+
+          dotnet restore $updater --runtime win-x64
+          if ($LASTEXITCODE -ne 0) { throw "Updater helper restore failed." }
+
+      - name: Publish single-file Windows app
         shell: pwsh
         run: |
-          $project = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
-          dotnet build $project --configuration Release --no-restore --verbosity minimal
+          $app = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
+          $output = Join-Path $env:RUNNER_TEMP "xboxhub-app-publish"
+          dotnet publish $app --configuration Release --runtime win-x64 --self-contained true --no-restore --verbosity minimal -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o $output
+          if ($LASTEXITCODE -ne 0) { throw "WPF publish failed." }
+
+          $exe = Join-Path $output "XboxHub.exe"
+          if (-not (Test-Path $exe)) { throw "Self-contained XboxHub.exe was not produced." }
+          if ((Get-Item $exe).Length -lt 1MB) { throw "XboxHub.exe is unexpectedly small." }
+
+      - name: Publish standalone updater helper
+        shell: pwsh
+        run: |
+          $updater = "private-source/src/XboxHub.Updater/XboxHub.Updater.csproj"
+          $output = Join-Path $env:RUNNER_TEMP "xboxhub-updater-publish"
+          dotnet publish $updater --configuration Release --runtime win-x64 --self-contained true --no-restore --verbosity minimal -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o $output
+          if ($LASTEXITCODE -ne 0) { throw "Updater helper publish failed." }
+
+          $exe = Join-Path $output "XboxHub.Updater.exe"
+          if (-not (Test-Path $exe)) { throw "Self-contained XboxHub.Updater.exe was not produced." }
+          if ((Get-Item $exe).Length -lt 1MB) { throw "XboxHub.Updater.exe is unexpectedly small." }
+
+      - name: Validate update package layout without uploading it
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          $appExe = Join-Path $env:RUNNER_TEMP "xboxhub-app-publish/XboxHub.exe"
+          $updaterExe = Join-Path $env:RUNNER_TEMP "xboxhub-updater-publish/XboxHub.Updater.exe"
+          $packageDir = Join-Path $env:RUNNER_TEMP "xboxhub-package"
+          $zipPath = Join-Path $env:RUNNER_TEMP "XboxHub-win-x64-validation.zip"
+
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          Copy-Item -LiteralPath $appExe -Destination (Join-Path $packageDir "XboxHub.exe")
+          Copy-Item -LiteralPath $updaterExe -Destination (Join-Path $packageDir "XboxHub.Updater.exe")
+          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zipPath -CompressionLevel Optimal -Force
+
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName } | Sort-Object)
+            if ($archive.Entries.Count -ne 2) { throw "Package must contain exactly two executables." }
+            if (($names -join ",") -ne "XboxHub.Updater.exe,XboxHub.exe") { throw "Package file layout is unexpected." }
+          }
+          finally {
+            $archive.Dispose()
+          }
+
+          $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+          $size = (Get-Item -LiteralPath $zipPath).Length
+          if ($size -gt 700MB) { throw "Package exceeds the updater's 700 MiB limit." }
+          Write-Host "Validated per-user update package."
+          Write-Host "Package bytes: $size"
+          Write-Host "Package SHA-256: $hash"
+          Write-Host "Package is temporary and will not be uploaded."
 
       - name: Report build result without exposing source
         if: success()
         shell: pwsh
         run: |
-          Write-Host "Xbox Hub for PC Windows WPF build succeeded."
-          Write-Host "No source files or build artifacts were uploaded."
+          Write-Host "Xbox Hub for PC app and standalone updater published successfully."
+          Write-Host "No source files, packages, keys, or build artifacts were uploaded."
