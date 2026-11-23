@@ -1,6 +1,6 @@
 Xbox Hub private-source build validation trigger
-Request: automatic validation after assistant-made source changes
-Source version: 0.1.4-preview.1
-Source commit: a58acfe39a1ad35f9e510865bc950930e5a393f2
-Purpose: start a Windows WPF restore/build check against the current private main branch.
+Request: validate signed updater and per-user installer helper
+Source version: 0.1.5-preview.1
+Source commit: a107c0c78c278afb3e96e292ca11102df3a9496c
+Purpose: start a Windows x64 restore, self-contained publish, and two-file update ZIP validation against the current private main branch.
 Security: no source archive, application binary, private log, signing key, or credential is published by this workflow.
