@@ -121,6 +121,42 @@ jobs:
           $updaterExe = Join-Path $env:RUNNER_TEMP "xboxhub-updater-publish/XboxHub.Updater.exe"
           if (-not (Test-Path -LiteralPath $updaterExe)) { throw "Published updater helper is missing." }
 
+          # Build a harmless GUI-subsystem executable with no message loop. It starts,
+          # exits without becoming ready, and deterministically forces the helper to roll back.
+          $stubDirectory = Join-Path $env:RUNNER_TEMP "xboxhub-rollback-stub"
+          New-Item -ItemType Directory -Path $stubDirectory -Force | Out-Null
+          @'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>WinExe</OutputType>
+              <TargetFramework>net10.0-windows</TargetFramework>
+              <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+              <SelfContained>true</SelfContained>
+              <PublishSingleFile>true</PublishSingleFile>
+              <UseAppHost>true</UseAppHost>
+              <ImplicitUsings>enable</ImplicitUsings>
+            </PropertyGroup>
+          </Project>
+          '@ | Set-Content -LiteralPath (Join-Path $stubDirectory "RollbackStub.csproj") -Encoding utf8
+          @'
+          internal static class Program
+          {
+              [System.STAThread]
+              private static void Main()
+              {
+                  return;
+              }
+          }
+          '@ | Set-Content -LiteralPath (Join-Path $stubDirectory "Program.cs") -Encoding utf8
+
+          $stubOutput = Join-Path $env:RUNNER_TEMP "xboxhub-rollback-stub-publish"
+          dotnet publish (Join-Path $stubDirectory "RollbackStub.csproj") --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -o $stubOutput --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "Rollback test stub publish failed." }
+
+          $stubExe = Join-Path $stubOutput "RollbackStub.exe"
+          if (-not (Test-Path -LiteralPath $stubExe)) { throw "Rollback test stub executable is missing." }
+          if ((Get-Item -LiteralPath $stubExe).Length -le 1MB) { throw "Rollback test stub executable is unexpectedly small." }
+
           $testRoot = Join-Path $env:RUNNER_TEMP "XboxHub-Rollback-Test-$([Guid]::NewGuid().ToString('N'))"
           $installDirectory = Join-Path $testRoot "InstalledApp"
           $packageDirectory = Join-Path $testRoot "Package"
@@ -130,16 +166,9 @@ jobs:
           New-Item -ItemType Directory -Path $installDirectory,$packageDirectory,$localUpdates -Force | Out-Null
 
           try {
-            # Deliberately invalid executable bytes force the candidate app launch to fail.
-            # The test passes only if the helper restores the exact original file.
-            [byte[]]$oldBytes = New-Object byte[] 1200000
-            [byte[]]$newBytes = New-Object byte[] 1200000
-            [System.Security.Cryptography.RandomNumberGenerator]::Fill($oldBytes)
-            [System.Security.Cryptography.RandomNumberGenerator]::Fill($newBytes)
-
             $oldApp = Join-Path $installDirectory "XboxHub.exe"
-            [System.IO.File]::WriteAllBytes($oldApp,$oldBytes)
-            [System.IO.File]::WriteAllBytes((Join-Path $packageDirectory "XboxHub.exe"),$newBytes)
+            Copy-Item -LiteralPath $stubExe -Destination $oldApp
+            Copy-Item -LiteralPath $stubExe -Destination (Join-Path $packageDirectory "XboxHub.exe")
             Copy-Item -LiteralPath $updaterExe -Destination (Join-Path $packageDirectory "XboxHub.Updater.exe")
 
             $oldHash = (Get-FileHash -LiteralPath $oldApp -Algorithm SHA256).Hash
@@ -151,7 +180,7 @@ jobs:
             & $updaterExe --apply-update --package $packagePath --install-directory $installDirectory --sha256 $packageHash --version "0.1.5" --parent-pid "2147483647"
             $updaterExit = $LASTEXITCODE
 
-            if ($updaterExit -eq 0) { throw "The deliberately invalid candidate unexpectedly reported success." }
+            if ($updaterExit -eq 0) { throw "The non-ready candidate unexpectedly reported success." }
             if (-not (Test-Path -LiteralPath $oldApp)) { throw "Rollback did not restore the original XboxHub.exe." }
 
             $restoredHash = (Get-FileHash -LiteralPath $oldApp -Algorithm SHA256).Hash
@@ -162,12 +191,14 @@ jobs:
             $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
             if ($result.status -ne "failed") { throw "The updater did not report the expected failed update state." }
 
-            Write-Host "Rollback test passed: invalid candidate rejected and original app restored byte-for-byte."
+            Write-Host "Rollback test passed: candidate did not become ready and the original app was restored byte-for-byte."
           }
           finally {
             Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $packagePath -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath (Join-Path $localUpdates "install-result.json") -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $stubDirectory -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $stubOutput -Recurse -Force -ErrorAction SilentlyContinue
           }
 
       - name: Report build result without exposing source
