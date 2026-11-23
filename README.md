@@ -17,20 +17,18 @@ The private app repository currently contains planning documentation only. A rea
 
 ## Required secret
 
-Create a fine-grained Personal Access Token with access to **only** `loudply0-eng/Xbox-Hub-for-PC` and **Contents: Read-only** permission. Add it to this public repository as an Actions secret named:
+The workflow uses a dedicated **read-only SSH deploy key** for the private source repository.
 
-`SOURCE_REPO_READ_TOKEN`
+- Add the public half of the key to `loudply0-eng/Xbox-Hub-for-PC` as a read-only deploy key.
+- Store the private half in this repository's Actions secrets as `SOURCE_REPO_DEPLOY_KEY`.
+- Do not enable write access for the deploy key.
+- Never paste or commit the private key.
 
-Never paste the token into a workflow file, issue, commit, or chat message. Revoke it immediately if exposed.
+The server setup script uses GitHub CLI to generate the key, register the public key, store the private key as an Actions secret, and trigger the manual connectivity check. The GitHub CLI session must have admin access to both repositories and Actions permissions on the builder repository.
 
 ## Run
 
-1. Add the secret above.
-2. Open **Actions**.
-3. Select **Private source connectivity check**.
-4. Choose **Run workflow** on the `main` branch.
-
-The job deliberately refuses to run from any branch other than `main`. Do not add pull-request or push triggers that expose the private-source token.
+Open **Actions**, select **Private source connectivity check**, and run it on `main`. The job deliberately refuses to run from any branch other than `main`. Do not add pull-request or push triggers to jobs that access the private-source secret.
 
 ## Future build workflow
 
