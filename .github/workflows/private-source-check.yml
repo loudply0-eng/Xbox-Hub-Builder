@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   inspect-private-source:
-    # A public branch or fork must never run a workflow with the private-source secret.
+    # Do not run this secret-bearing job from arbitrary branches or pull requests.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -23,7 +23,7 @@ jobs:
         with:
           repository: loudply0-eng/Xbox-Hub-for-PC
           ref: main
-          token: ${{ secrets.SOURCE_REPO_READ_TOKEN }}
+          ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
           path: private-source
           persist-credentials: false
           submodules: false
@@ -49,6 +49,6 @@ jobs:
             echo "No compilation or artifact generation was attempted."
           else
             echo "Build manifest paths:"
-            printf '%s\n' "${manifests[@]}"
+            printf '%s\\n' "${manifests[@]}"
             echo "Manifest discovery completed. No source files were printed."
           fi
