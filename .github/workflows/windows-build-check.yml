@@ -2,6 +2,11 @@ name: Windows WPF build check
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/xbox-hub-build-trigger.txt"
 
 permissions:
   contents: read
