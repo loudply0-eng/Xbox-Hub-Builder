@@ -1,0 +1,5 @@
+Xbox Hub private-source build validation trigger
+Request: 0001
+Source version: 0.1.3-preview.1
+Purpose: start the Windows WPF compile check against the current private main branch.
+Security: no source archive, application binary, private log, signing key, or credential is published by this workflow.
