@@ -9,31 +9,28 @@ Public repository for reviewed build automation only.
 - Never copy application source, private configuration, signing keys, certificates, access tokens, or user data into this repository.
 - Do not upload source archives, checkout directories, private logs, or signing material as workflow artifacts.
 
-## Current workflow
+## Current workflows
 
-`.github/workflows/private-source-check.yml` is a **manual source-connectivity check**, not an application build. It checks out the private repository on an ephemeral GitHub-hosted runner, reports only whether checkout succeeded and the number of possible build manifests, and does not print source contents or upload artifacts.
+- `private-source-check.yml` — manual-only check that verifies the read-only connection to the private source repository.
+- `windows-build-check.yml` — manual-only Windows build check for the private WPF application using the .NET 10 SDK.
 
-The latest recorded connectivity check completed successfully on 2026-11-23, and the run had no artifacts. The private app repository currently contains planning documentation only; no application build manifest exists yet.
+Both workflows run only from `main`, use the dedicated read-only SSH deploy key stored as `SOURCE_REPO_DEPLOY_KEY`, and set `persist-credentials: false`. The Windows build workflow does not upload source or build artifacts. It is a compile check, not a signed release pipeline.
 
-A real compile/release workflow must not be added until the Windows application framework and build commands are selected and committed to the private repository.
+The private app currently contains an early WPF shell. The in-app updater, runtime integrations, packaging, and code signing are not production-ready.
 
-## Required secret
+## Secret handling
 
-The workflow uses a dedicated **read-only SSH deploy key** for the private source repository.
-
-- The public half is registered as a read-only deploy key on `loudply0-eng/Xbox-Hub-for-PC`.
-- The private half is stored only in this repository's Actions secrets as `SOURCE_REPO_DEPLOY_KEY`.
-- The key must remain read-only.
+- The public key is registered as a read-only deploy key on `loudply0-eng/Xbox-Hub-for-PC`.
+- The private half is stored only as this repository's Actions secret `SOURCE_REPO_DEPLOY_KEY`.
+- Never enable write access for that deploy key.
 - Never paste, print, commit, or upload the private key.
+
+Treat every workflow modification on `main` as security-sensitive. Anyone able to change and run a secret-bearing workflow on the trusted branch could attempt to expose the private source or its credential. Limit write access to trusted maintainers and review workflow changes before dispatching them.
 
 ## Dependency maintenance
 
-`.github/dependabot.yml` checks GitHub Actions references weekly. Review Dependabot pull requests and retain full-SHA pinning when updating Actions.
+`.github/dependabot.yml` configures weekly checks for GitHub Actions references. Review Dependabot pull requests and retain full-SHA pinning when updating Actions.
 
-## Run
+## Future release pipeline
 
-Open **Actions**, select **Private source connectivity check**, and run it on `main`. The job deliberately refuses to run from any branch other than `main`. Do not add pull-request or push triggers to jobs that access the private-source secret.
-
-## Future build workflow
-
-A production build pipeline will be added only after the app framework is selected. Windows compilation should run on a Windows hosted runner. Signing must be handled separately in a trusted, protected environment; this public repository must not contain release signing keys.
+Do not add release signing secrets to this public repository. A production release pipeline must publish only intended binaries and signed update metadata after a separate signing and update trust design has been reviewed.
