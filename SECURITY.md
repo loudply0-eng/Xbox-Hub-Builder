@@ -1,13 +1,15 @@
 # Security Policy
 
-This is a public build-automation repository that may use one read-only credential to retrieve a private source repository. Treat every workflow change as security-sensitive.
+This is a public build-automation repository that has access to a private source repository through a dedicated read-only SSH deploy key. Treat every workflow change as security-sensitive.
 
 ## Credential rules
 
-- The only permitted source credential is a fine-grained token scoped to `loudply0-eng/Xbox-Hub-for-PC` with Contents: Read-only access.
-- Store it only as the Actions secret `SOURCE_REPO_READ_TOKEN`.
-- Never echo, print, encode into logs, place in command-line URLs, or write the token to files.
-- Revoke and replace the token immediately if exposure is suspected.
+- The source credential must be a deploy key registered only on `loudply0-eng/Xbox-Hub-for-PC`.
+- The deploy key must be read-only; never enable write access.
+- Store the private key only as the Actions secret `SOURCE_REPO_DEPLOY_KEY`.
+- Keep the public key registered as a deploy key on the private source repository.
+- Never echo, print, commit, or upload the private key.
+- Rotate and replace the deploy key immediately if exposure is suspected.
 
 ## Workflow rules
 
