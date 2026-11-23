@@ -201,6 +201,149 @@ jobs:
             Remove-Item -LiteralPath $stubOutput -Recurse -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Smoke-test updater success and rollback paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          # Build a small headless WPF process so the helper's Windows GUI readiness
+          # check can be exercised without launching the real application.
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "xboxhub-updater-smoke-app"
+          New-Item -ItemType Directory -Path $smokeRoot -Force | Out-Null
+          $smokeProject = @'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>WinExe</OutputType>
+              <TargetFramework>net10.0-windows</TargetFramework>
+              <UseWPF>true</UseWPF>
+              <EnableWindowsTargeting>true</EnableWindowsTargeting>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <Nullable>enable</Nullable>
+              <AssemblyName>XboxHub</AssemblyName>
+            </PropertyGroup>
+          </Project>
+          '@
+          Set-Content -LiteralPath (Join-Path $smokeRoot "Smoke.csproj") -Value $smokeProject -Encoding utf8
+          $smokeSource = @'
+          using System.Windows;
+          internal static class Program
+          {
+              [STAThread]
+              private static void Main()
+              {
+                  var app = new Application();
+                  app.Run();
+              }
+          }
+          '@
+          Set-Content -LiteralPath (Join-Path $smokeRoot "Program.cs") -Value $smokeSource -Encoding utf8
+
+          $smokeOutput = Join-Path $env:RUNNER_TEMP "xboxhub-updater-smoke-publish"
+          dotnet publish (Join-Path $smokeRoot "Smoke.csproj") --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -o $smokeOutput --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "Updater smoke WPF application publish failed." }
+
+          $smokeExe = Join-Path $smokeOutput "XboxHub.exe"
+          $helperExe = Join-Path $env:RUNNER_TEMP "xboxhub-updater-publish/XboxHub.Updater.exe"
+          if (-not (Test-Path $smokeExe) -or -not (Test-Path $helperExe)) { throw "Smoke-test binaries are missing." }
+
+          $cache = Join-Path $env:LOCALAPPDATA "XboxHub/Updates"
+          New-Item -ItemType Directory -Path $cache -Force | Out-Null
+          $resultPath = Join-Path $cache "install-result.json"
+
+          function New-UpdatePackage([string]$PackageName, [string]$AppFile) {
+            $source = Join-Path $env:RUNNER_TEMP ([Guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path $source -Force | Out-Null
+            Copy-Item -LiteralPath $AppFile -Destination (Join-Path $source "XboxHub.exe")
+            Copy-Item -LiteralPath $helperExe -Destination (Join-Path $source "XboxHub.Updater.exe")
+            $package = Join-Path $cache $PackageName
+            if (Test-Path $package) { Remove-Item -LiteralPath $package -Force }
+            Compress-Archive -Path (Join-Path $source "*") -DestinationPath $package -CompressionLevel Optimal -Force
+            Remove-Item -LiteralPath $source -Recurse -Force
+            return $package
+          }
+
+          function Get-ExitedParentPid {
+            $child = Start-Process -FilePath (Join-Path $PSHOME "pwsh.exe") -ArgumentList @("-NoProfile", "-Command", "exit 0") -PassThru -Wait
+            return $child.Id
+          }
+
+          function Invoke-Updater([string]$Package, [string]$InstallDir, [string]$Version) {
+            $hash = (Get-FileHash -LiteralPath $Package -Algorithm SHA256).Hash
+            $parentPid = Get-ExitedParentPid
+            $psi = [System.Diagnostics.ProcessStartInfo]::new($helperExe)
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            foreach ($argument in @(
+              "--apply-update",
+              "--package", $Package,
+              "--install-directory", $InstallDir,
+              "--sha256", $hash,
+              "--version", $Version,
+              "--parent-pid", [string]$parentPid
+            )) {
+              $psi.ArgumentList.Add($argument)
+            }
+            $process = [System.Diagnostics.Process]::Start($psi)
+            if (-not $process.WaitForExit(120000)) {
+              $process.Kill($true)
+              throw "Updater smoke test timed out."
+            }
+            $exitCode = $process.ExitCode
+            $process.Dispose()
+            return $exitCode
+          }
+
+          function Stop-SmokeApp([string]$InstallDir) {
+            $expected = [System.IO.Path]::GetFullPath((Join-Path $InstallDir "XboxHub.exe"))
+            Get-Process -Name "XboxHub" -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -and [System.IO.Path]::GetFullPath($_.Path) -eq $expected } |
+              Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
+          # Successful update: old app folder is replaced, new app starts, backup remains.
+          $successInstall = Join-Path $env:RUNNER_TEMP "xboxhub-updater-success-install"
+          New-Item -ItemType Directory -Path $successInstall -Force | Out-Null
+          Copy-Item -LiteralPath $smokeExe -Destination (Join-Path $successInstall "XboxHub.exe")
+          $oldHash = (Get-FileHash -LiteralPath (Join-Path $successInstall "XboxHub.exe") -Algorithm SHA256).Hash
+          $successPackage = New-UpdatePackage "xboxhub-smoke-success.zip" $smokeExe
+          if (Test-Path $resultPath) { Remove-Item -LiteralPath $resultPath -Force }
+          $successExit = Invoke-Updater $successPackage $successInstall "0.1.5"
+          if ($successExit -ne 0) { throw "Updater success-path returned exit code $successExit." }
+          $successResult = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+          if ($successResult.status -ne "success" -or $successResult.version -ne "0.1.5") { throw "Updater success receipt is invalid." }
+          if (-not (Test-Path (Join-Path $successInstall "XboxHub.Updater.exe"))) { throw "Updated helper was not installed." }
+          if ((Get-FileHash -LiteralPath (Join-Path $successInstall "XboxHub.exe") -Algorithm SHA256).Hash -ne $oldHash) { throw "New app file hash differs from the expected smoke executable." }
+          $successBackups = Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter ".xboxhub-updater-success-install.backup-*"
+          if ($successBackups.Count -lt 1) { throw "Successful update did not retain a rollback backup." }
+          Stop-SmokeApp $successInstall
+          Write-Host "Updater successful replacement path passed."
+
+          # Failed update: corrupt app executable must be rejected by Windows launch,
+          # and the old known-good application folder must be restored.
+          $rollbackInstall = Join-Path $env:RUNNER_TEMP "xboxhub-updater-rollback-install"
+          New-Item -ItemType Directory -Path $rollbackInstall -Force | Out-Null
+          Copy-Item -LiteralPath $smokeExe -Destination (Join-Path $rollbackInstall "XboxHub.exe")
+          $knownGoodHash = (Get-FileHash -LiteralPath (Join-Path $rollbackInstall "XboxHub.exe") -Algorithm SHA256).Hash
+          $badApp = Join-Path $env:RUNNER_TEMP "not-a-windows-executable.bin"
+          $badBytes = New-Object byte[] (2MB)
+          [System.Security.Cryptography.RandomNumberGenerator]::Fill($badBytes)
+          [System.IO.File]::WriteAllBytes($badApp, $badBytes)
+          $badPackage = New-UpdatePackage "xboxhub-smoke-rollback.zip" $badApp
+          if (Test-Path $resultPath) { Remove-Item -LiteralPath $resultPath -Force }
+          $rollbackExit = Invoke-Updater $badPackage $rollbackInstall "0.1.6"
+          if ($rollbackExit -eq 0) { throw "Updater incorrectly accepted a corrupt executable." }
+          $failureResult = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+          if ($failureResult.status -ne "failed") { throw "Updater failure receipt is missing." }
+          $restoredExe = Join-Path $rollbackInstall "XboxHub.exe"
+          if (-not (Test-Path $restoredExe)) { throw "Previous app was not restored after failed update." }
+          if ((Get-FileHash -LiteralPath $restoredExe -Algorithm SHA256).Hash -ne $knownGoodHash) { throw "Rollback did not restore the exact original app binary." }
+          Stop-SmokeApp $rollbackInstall
+          Write-Host "Updater rollback path passed."
+
+          Remove-Item -LiteralPath $successPackage,$badPackage,$badApp -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $successInstall,$rollbackInstall -Recurse -Force -ErrorAction SilentlyContinue
+
       - name: Report build result without exposing source
         if: success()
         shell: pwsh
