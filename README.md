@@ -12,11 +12,11 @@ Public repository for reviewed build automation only.
 ## Current workflows
 
 - `private-source-check.yml` — manual-only check that verifies the read-only connection to the private source repository.
-- `windows-build-check.yml` — Windows build check for the private WPF application using the .NET 10 SDK. It runs on manual dispatch and whenever the trusted build-trigger marker changes on `main`.
+- `windows-build-check.yml` — Windows x64 restore/publish, two-file ZIP layout validation, and updater transaction tests for the private WPF app and its standalone helper. It runs on manual dispatch and whenever the trusted build-trigger marker changes on `main`.
 
-Both workflows run only from `main`, use the dedicated read-only SSH deploy key stored as `SOURCE_REPO_DEPLOY_KEY`, and set `persist-credentials: false`. The Windows build workflow checks out the current private `main` source at run time, does not upload source or build artifacts, and is a compile check—not a signed release pipeline. For each assistant-made source update, the build-trigger marker is advanced to start this check without requiring a server command from the user.
+Both workflows run only from `main`, use the dedicated read-only SSH deploy key stored as `SOURCE_REPO_DEPLOY_KEY`, and set `persist-credentials: false`. The Windows workflow checks out the current private `main`, publishes the app and updater to runner-temporary storage, validates the ZIP, and runs transaction tests; it never uploads source or build artifacts. For each assistant-made source update, the build-trigger marker is advanced to start this check without requiring a server command from the user. It is validation, not a signed release pipeline.
 
-The private app currently contains an early WPF shell. The Windows build check for preview `0.1.3-preview.1` succeeded on 2026-11-23 (run [45232055908](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45232055908)). No artifacts were uploaded. The in-app release history is implemented; verified package downloads, installation, runtime integrations, packaging, and code signing are not production-ready.
+The private app currently contains an early WPF shell. Preview `0.1.7-preview.1` passed Windows x64 publish, two-file package validation, and updater transaction tests on 2026-11-23 (run [45241802321](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45241802321)). No artifacts were uploaded. The signed feed and public key are still unconfigured, so no live automatic update can be downloaded yet; runtime integrations and Authenticode signing are also outstanding.
 
 ## Secret handling
 
