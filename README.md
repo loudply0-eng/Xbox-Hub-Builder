@@ -24,7 +24,7 @@ The workflow uses a dedicated **read-only SSH deploy key** for the private sourc
 - Do not enable write access for the deploy key.
 - Never paste or commit the private key.
 
-The server setup script uses GitHub CLI to generate the key, register the public key, store the private key as an Actions secret, and trigger the manual connectivity check. The GitHub CLI session must have admin access to both repositories and Actions permissions on the builder repository.
+A setup command run from the linked server can use GitHub CLI to generate the key, register the public key, store the private key as an Actions secret, and trigger the manual connectivity check. The GitHub CLI session must have admin access to both repositories and Actions permissions on the builder repository.
 
 ## Run
 
