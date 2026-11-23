@@ -12,11 +12,11 @@ Public repository for reviewed build automation only.
 ## Current workflows
 
 - `private-source-check.yml` — manual-only check that verifies the read-only connection to the private source repository.
-- `windows-build-check.yml` — manual-only Windows build check for the private WPF application using the .NET 10 SDK.
+- `windows-build-check.yml` — Windows build check for the private WPF application using the .NET 10 SDK. It runs on manual dispatch and whenever the trusted build-trigger marker changes on `main`.
 
-Both workflows run only from `main`, use the dedicated read-only SSH deploy key stored as `SOURCE_REPO_DEPLOY_KEY`, and set `persist-credentials: false`. The Windows build workflow does not upload source or build artifacts. It is a compile check, not a signed release pipeline.
+Both workflows run only from `main`, use the dedicated read-only SSH deploy key stored as `SOURCE_REPO_DEPLOY_KEY`, and set `persist-credentials: false`. The Windows build workflow checks out the current private `main` source at run time, does not upload source or build artifacts, and is a compile check—not a signed release pipeline. For each assistant-made source update, the build-trigger marker is advanced to start this check without requiring a server command from the user.
 
-The private app currently contains an early WPF shell. Its first Windows WPF build check succeeded on 2026-11-23 (run [45225948596](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45225948596)). No artifacts were uploaded. The in-app updater, runtime integrations, packaging, and code signing are not production-ready.
+The private app currently contains an early WPF shell. The Windows build check for preview `0.1.3-preview.1` succeeded on 2026-11-23 (run [45232055908](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45232055908)). No artifacts were uploaded. The in-app release history is implemented; verified package downloads, installation, runtime integrations, packaging, and code signing are not production-ready.
 
 ## Secret handling
 
