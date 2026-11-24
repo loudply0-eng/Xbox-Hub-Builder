@@ -1,0 +1,123 @@
+name: Build XCL Windows runtime from upstream source
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/xcl-runtime-build-trigger.txt"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xcl-runtime-windows-build
+  cancel-in-progress: true
+
+jobs:
+  build-xcl:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out pinned upstream XCL source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ivall/xcl
+          ref: e50836bdf6f5c026f281d545ed86fb2f07ba6e6a
+          path: xcl-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install Rust stable MSVC toolchain
+        shell: pwsh
+        run: |
+          if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            $installer = Join-Path $env:RUNNER_TEMP "rustup-init.exe"
+            Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $installer
+            & $installer -y --profile minimal --default-host x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw "Rust toolchain bootstrap failed." }
+          }
+
+          $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+          rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "Rust stable toolchain installation failed." }
+
+          rustup default stable-x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "Could not select the MSVC Rust toolchain." }
+
+          cargo --version
+          rustc --version
+
+      - name: Build XCL release executable
+        shell: pwsh
+        working-directory: xcl-source
+        run: |
+          $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+          cargo build --locked --release --workspace
+          if ($LASTEXITCODE -ne 0) { throw "XCL release build failed." }
+
+          $exe = "target/release/xcl.exe"
+          if (-not (Test-Path -LiteralPath $exe)) { throw "The XCL executable was not produced." }
+          if ((Get-Item -LiteralPath $exe).Length -lt 1MB) { throw "The XCL executable is unexpectedly small." }
+
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "The built XCL executable failed its version smoke test." }
+
+      - name: Run XCL workspace tests
+        shell: pwsh
+        working-directory: xcl-source
+        run: |
+          $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+          cargo test --locked --release --workspace --no-fail-fast -- --test-threads=4
+          if ($LASTEXITCODE -ne 0) { throw "XCL workspace tests failed." }
+
+      - name: Package XCL binary with license and exact source
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE "xcl-source"
+          $package = Join-Path $env:RUNNER_TEMP "xcl-runtime-package"
+          $sourceZip = Join-Path $env:RUNNER_TEMP "xcl-source-e50836b.zip"
+          $runtimeZip = Join-Path $env:RUNNER_TEMP "xcl-runtime-win-x64-gpl2.zip"
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+
+          Copy-Item -LiteralPath (Join-Path $source "target/release/xcl.exe") -Destination (Join-Path $package "xcl.exe")
+          Copy-Item -LiteralPath (Join-Path $source "LICENSE") -Destination (Join-Path $package "LICENSE")
+          Copy-Item -LiteralPath (Join-Path $source "THIRD_PARTY.md") -Destination (Join-Path $package "THIRD_PARTY.md")
+          Copy-Item -LiteralPath (Join-Path $source "README.md") -Destination (Join-Path $package "README-upstream.md")
+
+          git -C $source archive --format=zip --output $sourceZip e50836bdf6f5c026f281d545ed86fb2f07ba6e6a
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $sourceZip)) {
+            throw "Could not include the exact upstream source archive."
+          }
+          Copy-Item -LiteralPath $sourceZip -Destination (Join-Path $package "XCL-source-e50836b.zip")
+
+          $metadata = @"
+          Upstream: https://github.com/ivall/xcl
+          Commit: e50836bdf6f5c026f281d545ed86fb2f07ba6e6a
+          License: GPL-2.0-only
+          Target: Windows x64 (MSVC)
+          Build: cargo build --locked --release --workspace
+          Tests: cargo test --locked --release --workspace --no-fail-fast -- --test-threads=4
+          Notes: This is an unsigned CI build. DXC 1.8+ and Windows XGameRuntime are runtime prerequisites.
+          Game files are not included. XCL does not decrypt packages or bypass DRM.
+          "@
+          [System.IO.File]::WriteAllText((Join-Path $package "BUILD-INFO.txt"), $metadata, [System.Text.UTF8Encoding]::new($false))
+
+          Compress-Archive -Path (Join-Path $package "*") -DestinationPath $runtimeZip -CompressionLevel Optimal -Force
+          if ((Get-Item -LiteralPath $runtimeZip).Length -gt 700MB) {
+            throw "The XCL runtime package exceeded the expected artifact size."
+          }
+
+          Write-Host "Prepared XCL runtime package with executable, GPL license, third-party notices, and exact upstream source."
+          Write-Host "Package size: $((Get-Item -LiteralPath $runtimeZip).Length) bytes"
+
+      - name: Upload short-lived XCL runtime build artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: xcl-runtime-win-x64-gpl2
+          path: ${{ runner.temp }}/xcl-runtime-win-x64-gpl2.zip
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
