@@ -1,7 +1,6 @@
 Xbox Hub private-source build validation trigger
-Request: build and validate Xbox Hub 0.1.8 in-app automatic update experience and encrypted artifact handoff
-Source version: 0.1.8-preview.1
-Source commit: 564e5a6d46379d017e453146088e075f85e422b6
-Scope: Windows x64 restore, WPF app and standalone updater publish, Settings manual update-check UI, startup and 12-hour automatic checks, automatic verified download/install/close/restart flow, exact two-file ZIP validation, versioned ZIP copy plus SHA-256 equality check, offline signer positive/negative tests with ephemeral CI-only key, production owner RSA package-encryption public-key validation, encrypted package round trip and tamper rejection, ciphertext-only artifact upload, and updater transaction tests.
-Security: production private keys and passphrases remain offline on the owner's phone; CI uses only throwaway test signing keys and the configured public encryption key. No plaintext package, private source archive, production private key, TLS key, Cloudflare token, or credential is uploaded.
-Final check: confirm package key ID/fingerprint match, ciphertext-only artifact upload succeeds, and all regression tests pass.
+Request: build and validate Xbox Hub 0.1.9-preview.1 with experimental XCL runtime adapter.
+Source version: 0.1.9-preview.1
+Source commit: c3bef79d47ed9ab95ff1cc834c417d2c801cd8fc
+Scope: Windows x64 restore, WPF app and standalone updater publish, XCL executable selection/version verification, Xbox GDK PE import inspection, guarded XCL launch, configurable XCL_PAGE_BUDGET_MB defaulting to 6144 MiB, exact two-file app ZIP validation, offline signing helper parser checks, updater transaction tests.
+Security: XCL remains a separate GPL-2.0-only runtime and is not bundled in the app package. Production private keys and passphrases remain offline; CI uses no production private key. No plaintext app package or private source is uploaded.
