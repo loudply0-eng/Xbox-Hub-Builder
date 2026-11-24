@@ -81,7 +81,6 @@ jobs:
           $source = Join-Path $env:GITHUB_WORKSPACE "xcl-source"
           $package = Join-Path $env:RUNNER_TEMP "xcl-runtime-package"
           $sourceZip = Join-Path $env:RUNNER_TEMP "xcl-source-808a8a4.zip"
-          $runtimeZip = Join-Path $env:RUNNER_TEMP "xcl-runtime-win-x64-gpl2.zip"
           New-Item -ItemType Directory -Path $package -Force | Out-Null
 
           Copy-Item -LiteralPath (Join-Path $source "target/release/xcl.exe") -Destination (Join-Path $package "xcl.exe")
@@ -93,33 +92,33 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $sourceZip)) {
             throw "Could not include the exact upstream source archive."
           }
-          Copy-Item -LiteralPath $sourceZip -Destination (Join-Path $package "XCL-source-e50836b.zip")
+          Copy-Item -LiteralPath $sourceZip -Destination (Join-Path $package "XCL-source-808a8a4.zip")
 
+          $exeHash = (Get-FileHash -LiteralPath (Join-Path $package "xcl.exe") -Algorithm SHA256).Hash
+          $sourceHash = (Get-FileHash -LiteralPath $sourceZip -Algorithm SHA256).Hash
           $metadata = @"
           Upstream: https://github.com/ivall/xcl
           Commit: 808a8a4862272d6b8529231d094eb636e814bee1
           License: GPL-2.0-only
           Target: Windows x64 (MSVC)
           Build: cargo build --locked --release --workspace
-          Tests: cargo test --locked --release --workspace --no-fail-fast -- --test-threads=4
+          Tests: .\scripts\test.ps1 --skip test_title_runs_and_game_folder_is_untouched (upstream Windows CI)
+          xcl.exe SHA256: $exeHash
+          Source archive SHA256: $sourceHash
           Notes: This is an unsigned CI build. DXC 1.8+ and Windows XGameRuntime are runtime prerequisites.
           Game files are not included. XCL does not decrypt packages or bypass DRM.
           "@
           [System.IO.File]::WriteAllText((Join-Path $package "BUILD-INFO.txt"), $metadata, [System.Text.UTF8Encoding]::new($false))
 
-          Compress-Archive -Path (Join-Path $package "*") -DestinationPath $runtimeZip -CompressionLevel Optimal -Force
-          if ((Get-Item -LiteralPath $runtimeZip).Length -gt 700MB) {
-            throw "The XCL runtime package exceeded the expected artifact size."
-          }
-
-          Write-Host "Prepared XCL runtime package with executable, GPL license, third-party notices, and exact upstream source."
-          Write-Host "Package size: $((Get-Item -LiteralPath $runtimeZip).Length) bytes"
+          Write-Host "Prepared XCL runtime directory with executable, GPL license, third-party notices, and exact upstream source."
+          Write-Host "xcl.exe SHA-256: $exeHash"
+          Write-Host "Source archive SHA-256: $sourceHash"
 
       - name: Upload short-lived XCL runtime build artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: xcl-runtime-win-x64-gpl2
-          path: ${{ runner.temp }}/xcl-runtime-win-x64-gpl2.zip
+          path: ${{ runner.temp }}/xcl-runtime-package
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 30
           compression-level: 0
