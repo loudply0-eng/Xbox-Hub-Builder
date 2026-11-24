@@ -1,1 +1,1 @@
-Build XCL Windows x64 from 808a8a4862272d6b8529231d094eb636e814bee1; this revision adds optional LRU eviction for CPU-filled texture pages, relevant to 8GB GPUs. Include GPL source and notices.
+Rebuild XCL Windows runtime artifact with xcl.exe, matching source archive, GPL notices, and SHA-256 checksums. Upload the package directory directly so users extract only once.
