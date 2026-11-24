@@ -12,7 +12,7 @@ Public repository for reviewed build automation only.
 
 ## Current workflows
 
-- `private-source-check.yml` — verifies the read-only connection to the private source repository and runs the offline manifest-signing regression tests with disposable keys.
+- `private-source-check.yml` — verifies the read-only private-source connection, compiles the offline package decryptor and manifest signer, and runs six disposable-key regression tests (five decryptor tests plus one signer test).
 - `windows-build-check.yml` — Windows x64 restore/publish, exact two-file ZIP validation, offline manifest-signer positive/negative tests, encrypted-package round-trip and tamper tests, and updater replacement/rollback tests.
 - `xcl-runtime-windows-build.yml` — builds the separately licensed XCL runtime from its pinned upstream source.
 - `update-host-smoke-check.yml` — weekly and manually dispatchable external DNS, HTTP redirect, TLS-chain, and stable-manifest endpoint check.
@@ -23,18 +23,20 @@ The Windows build workflow runs on manual dispatch or when the trusted build-tri
 
 ## Latest Xbox Hub build — 2026-11-24
 
-<https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45355991415>
+<https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45441847709>
 
-- Result: **success** (workflow run 38).
-- Source: private `loudply0-eng/Xbox-Hub-for-PC` `main`, commit `b368f482386618578a92be56a68ce6085b577581`.
+- Result: **success** (workflow run 39).
+- Source: private `loudply0-eng/Xbox-Hub-for-PC` `main`, commit `f94198cb1677be27f6d0dff4572b1d82933f0c64`.
 - App version: `0.1.9`.
 - Windows x64 package: `XboxHub-0.1.9-win-x64.zip`.
-- Plaintext package size, measured in the isolated runner: `91,686,129` bytes.
-- Plaintext package SHA-256: `87C3BDB4433C258FF2EDACCE887D7F90000156FC1DE422193CC9316274859CE3`.
+- Plaintext package size, measured in the isolated runner: `91,686,171` bytes.
+- Plaintext package SHA-256: `7C016619D8FB7C1ADD0834E9EFE367D5334819B1C40E02995D68D8BAF4821F26`.
 - Uploaded artifact: `xboxhub-encrypted-offline-package` (encrypted `.xhubenc` only).
-- Artifact expiry: **2026-11-27 08:26:54 UTC**.
+- Artifact expiry: **2026-11-27 16:52:04 UTC**.
 
 The successful run published both self-contained executables, validated the exact two-file ZIP, passed positive and negative offline-signing tests with a throwaway CI key, verified package encryption/decryption byte-for-byte with a disposable test recipient, rejected a tampered ciphertext, and passed the updater replacement and rollback tests. No plaintext package, private source, production signing key, package-decryption key, or passphrase was uploaded.
+
+The phone-side decryptor and its disposable-key tests passed separately in [private-source test run 45441847945](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45441847945): all five decryptor cases plus the manifest-signer test completed successfully (`Ran 6 tests`).
 
 This is a **0.1.9 release candidate build**, not a published stable release. The encrypted artifact must be decrypted by the owner with the separate offline package-decryption key before the ZIP can be inspected and tested on Windows. The recorded hash and size above refer to the plaintext ZIP, not the outer GitHub artifact archive.
 
