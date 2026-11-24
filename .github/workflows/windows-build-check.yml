@@ -137,6 +137,93 @@ jobs:
           Write-Host "Package SHA-256: $hash"
           Write-Host "Package is temporary and will not be uploaded."
 
+      - name: Test offline manifest signing with a throwaway CI key
+        shell: pwsh
+        run: |
+          $openssl = Get-Command openssl -ErrorAction SilentlyContinue
+          if (-not $openssl) {
+            $gitOpenSsl = Join-Path $env:ProgramFiles "Git/usr/bin/openssl.exe"
+            if (Test-Path -LiteralPath $gitOpenSsl) {
+              $env:PATH = "$(Split-Path -Parent $gitOpenSsl);$env:PATH"
+              $openssl = Get-Command openssl -ErrorAction SilentlyContinue
+            }
+          }
+          if (-not $openssl) { throw "OpenSSL is required to exercise the offline manifest signer." }
+
+          $temp = Join-Path $env:RUNNER_TEMP ("xboxhub-signer-test-" + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $temp | Out-Null
+
+          try {
+            $appProject = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
+            $zipPath = Join-Path $env:RUNNER_TEMP "XboxHub-win-x64-validation.zip"
+            $testPrivate = Join-Path $temp "ephemeral-test-private.pem"
+            $testPublicDer = Join-Path $temp "ephemeral-test-public.der"
+            $testPublicPem = Join-Path $temp "ephemeral-test-public.pem"
+            $payloadPath = Join-Path $temp "manifest-payload.json"
+            $envelopePath = Join-Path $temp "manifest-envelope.json"
+            $decodedPayload = Join-Path $temp "decoded-payload.json"
+            $signaturePath = Join-Path $temp "decoded-signature.bin"
+
+            & $openssl.Source genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out $testPrivate
+            if ($LASTEXITCODE -ne 0) { throw "Could not create the ephemeral CI-only test key." }
+
+            & $openssl.Source pkey -in $testPrivate -pubout -outform DER -out $testPublicDer
+            if ($LASTEXITCODE -ne 0) { throw "Could not export the ephemeral test public key." }
+
+            & $openssl.Source pkey -pubin -inform DER -in $testPublicDer -pubout -out $testPublicPem
+            if ($LASTEXITCODE -ne 0) { throw "Could not export the ephemeral PEM public key." }
+
+            $fingerprint = (Get-FileHash -LiteralPath $testPublicDer -Algorithm SHA256).Hash.ToLowerInvariant()
+            $keyId = "xboxhub-rsa3072-" + $fingerprint.Substring(0, 16)
+            $size = (Get-Item -LiteralPath $zipPath).Length
+            $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+
+            $payload = [ordered]@{
+              schemaVersion = 1
+              productId = "xbox-hub-for-pc"
+              channel = "stable"
+              version = "99.0.0"
+              releaseSequence = 999999
+              platform = "windows"
+              architecture = "x64"
+              packageUrl = "https://updates.mahmoudaljuorany.store/stable/XboxHub-99.0.0-win-x64.zip"
+              packageFormat = "zip"
+              packageSize = [long]$size
+              packageSha256 = $hash
+              minimumUpdaterVersion = "0.1.7"
+              title = "Ephemeral Xbox Hub signer validation"
+              date = (Get-Date -Format "yyyy-MM-dd")
+              changes = @("CI-only signature test; this is not a release.")
+            }
+            $payloadJson = $payload | ConvertTo-Json -Depth 5
+            [System.IO.File]::WriteAllText($payloadPath, $payloadJson, [System.Text.UTF8Encoding]::new($false))
+
+            & pwsh -NoProfile -File "private-source/tools/sign-update-manifest.ps1" `
+              -PayloadPath $payloadPath `
+              -PackagePath $zipPath `
+              -PrivateKeyPath $testPrivate `
+              -KeyId $keyId `
+              -OutputPath $envelopePath
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $envelopePath)) {
+              throw "Offline manifest signing helper failed."
+            }
+
+            $envelope = Get-Content -LiteralPath $envelopePath -Raw | ConvertFrom-Json -ErrorAction Stop
+            if ($envelope.keyId -cne $keyId) { throw "Signed envelope key ID mismatch." }
+            [System.IO.File]::WriteAllBytes($decodedPayload, [Convert]::FromBase64String($envelope.payload))
+            [System.IO.File]::WriteAllBytes($signaturePath, [Convert]::FromBase64String($envelope.signature))
+
+            & $openssl.Source dgst -sha256 -verify $testPublicPem -signature $signaturePath $decodedPayload
+            if ($LASTEXITCODE -ne 0) { throw "Independent verification of the signed envelope failed." }
+
+            Write-Host "PASS: offline signer validated the payload and package, created the envelope, and verified its RSA signature."
+          }
+          finally {
+            if (Test-Path -LiteralPath $temp) {
+              Remove-Item -LiteralPath $temp -Recurse -Force
+            }
+          }
+
       - name: Test updater replacement and rollback transactions
         shell: pwsh
         run: |
