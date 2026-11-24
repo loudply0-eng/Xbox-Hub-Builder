@@ -4,3 +4,4 @@ Source version: 0.1.7-preview.1
 Source commit: 59d7d3304786c53c8a9a80acb1de6e1b417b01d0
 Scope: Windows x64 restore, app/updater publish, exact two-file ZIP validation, versioned ZIP copy plus SHA-256 equality check, offline signer positive/negative tests, encrypted RSA recipient-key package round trip, tamper rejection, optional ciphertext-only upload (must skip until owner public key is configured), and updater transaction tests.
 Security: ephemeral CI-only keys/passphrase; no production secret or key is used. No plaintext package, private source archive, production key, TLS key, Cloudflare token, or credential is uploaded.
+Final check: verify versioned ZIP SHA-256 equality and conditional ciphertext-only reporting; this change is build-trigger-only.
