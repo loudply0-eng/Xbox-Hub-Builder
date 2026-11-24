@@ -309,7 +309,7 @@ jobs:
             $testPassphrase = "XboxHub-CI-" + [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
             $env:XBOX_TEST_PACKAGE_PASSPHRASE = $testPassphrase
 
-            & $openssl.Source genpkey -algorithm RSA -aes-256-cbc -pkeyopt rsa_keygen_bits:3072 -passout env:XBOX_TEST_PACKAGE_PASSPHRASE -out $privateKey
+            & $openssl.Source genrsa -aes256 -passout env:XBOX_TEST_PACKAGE_PASSPHRASE -out $privateKey 3072
             if ($LASTEXITCODE -ne 0) { throw "Could not generate encrypted ephemeral package recipient key." }
 
             & $openssl.Source pkey -in $privateKey -passin env:XBOX_TEST_PACKAGE_PASSPHRASE -pubout -outform DER -out $publicDer
