@@ -55,11 +55,14 @@ jobs:
             echo "ERROR: HTTP must redirect to HTTPS without following the redirect."
             exit 1
           fi
-          if ! grep -Eiq "^location: https://$host/\r?$" "$headers"; then
+          location="$(awk 'tolower($1) == "location:" { sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit }' "$headers")"
+          echo "HTTP redirect target: $location"
+          if [[ "$location" != "https://$host/" ]]; then
             cat "$headers"
             echo "ERROR: HTTP redirect target is not the exact HTTPS host."
             exit 1
           fi
+          echo "PASS: HTTP redirects to the same HTTPS hostname."
           echo "PASS: HTTP redirects to the same HTTPS hostname."
 
       - name: Verify public HTTPS certificate and stable manifest endpoint
