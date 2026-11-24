@@ -40,7 +40,9 @@ jobs:
         run: |
           $helpers = @(
             "private-source/tools/New-XboxHubReleaseKey.ps1",
-            "private-source/tools/sign-update-manifest.ps1"
+            "private-source/tools/sign-update-manifest.ps1",
+            "private-source/tools/Encrypt-XboxHubPackage.ps1",
+            "private-source/tools/Decrypt-XboxHubPackage.ps1"
           )
           foreach ($helper in $helpers) {
             if (-not (Test-Path -LiteralPath $helper)) { throw "Required offline signing helper is missing: $helper" }
@@ -274,6 +276,133 @@ jobs:
               Remove-Item -LiteralPath $temp -Recurse -Force
             }
           }
+
+      - name: Test encrypted package handoff with a throwaway recipient key
+        shell: pwsh
+        run: |
+          $openssl = Get-Command openssl -ErrorAction SilentlyContinue
+          if (-not $openssl) {
+            $gitOpenSsl = Join-Path $env:ProgramFiles "Git/usr/bin/openssl.exe"
+            if (Test-Path -LiteralPath $gitOpenSsl) {
+              $env:PATH = "$(Split-Path -Parent $gitOpenSsl);$env:PATH"
+              $openssl = Get-Command openssl -ErrorAction SilentlyContinue
+            }
+          }
+          if (-not $openssl) { throw "OpenSSL is required for the ephemeral encryption test." }
+
+          $temp = Join-Path $env:RUNNER_TEMP ("xboxhub-encryption-test-" + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $temp | Out-Null
+
+          try {
+            $zipPath = Join-Path $env:RUNNER_TEMP "XboxHub-win-x64-validation.zip"
+            $privateKey = Join-Path $temp "ephemeral-package-private.pem"
+            $publicDer = Join-Path $temp "ephemeral-package-public.der"
+            $encryptedPath = Join-Path $temp "XboxHub-validation.xhubenc"
+            $decryptedPath = Join-Path $temp "XboxHub-validation-decrypted.zip"
+            $tamperedPath = Join-Path $temp "XboxHub-validation-tampered.xhubenc"
+            $tamperedOutput = Join-Path $temp "must-not-exist.zip"
+
+            & $openssl.Source genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out $privateKey
+            if ($LASTEXITCODE -ne 0) { throw "Could not generate ephemeral package recipient key." }
+
+            & $openssl.Source pkey -in $privateKey -pubout -outform DER -out $publicDer
+            if ($LASTEXITCODE -ne 0) { throw "Could not export ephemeral package recipient public key." }
+
+            $publicBytes = [System.IO.File]::ReadAllBytes($publicDer)
+            $publicBase64 = [Convert]::ToBase64String($publicBytes)
+            $fingerprint = (Get-FileHash -LiteralPath $publicDer -Algorithm SHA256).Hash.ToLowerInvariant()
+            $keyId = "xboxhub-package-rsa3072-" + $fingerprint.Substring(0, 16)
+
+            & pwsh -NoProfile -File "private-source/tools/Encrypt-XboxHubPackage.ps1" `
+              -PackagePath $zipPath `
+              -PublicKeyBase64 $publicBase64 `
+              -KeyId $keyId `
+              -OutputPath $encryptedPath
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $encryptedPath)) {
+              throw "Xbox Hub package encryption helper failed."
+            }
+            $global:LASTEXITCODE = 0
+
+            & pwsh -NoProfile -File "private-source/tools/Decrypt-XboxHubPackage.ps1" `
+              -EncryptedPackagePath $encryptedPath `
+              -PrivateKeyPath $privateKey `
+              -OutputPath $decryptedPath
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $decryptedPath)) {
+              throw "Xbox Hub package decryption helper failed."
+            }
+            $global:LASTEXITCODE = 0
+
+            $originalHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+            $decryptedHash = (Get-FileHash -LiteralPath $decryptedPath -Algorithm SHA256).Hash
+            if ($originalHash -cne $decryptedHash) { throw "Encrypted package round-trip changed the original ZIP bytes." }
+            Write-Host "PASS: encrypted package decrypted byte-for-byte with the matching private key."
+
+            $tamperedBytes = [System.IO.File]::ReadAllBytes($encryptedPath)
+            $tamperedBytes[$tamperedBytes.Length - 1] = $tamperedBytes[$tamperedBytes.Length - 1] -bxor 1
+            [System.IO.File]::WriteAllBytes($tamperedPath, $tamperedBytes)
+
+            & pwsh -NoProfile -File "private-source/tools/Decrypt-XboxHubPackage.ps1" `
+              -EncryptedPackagePath $tamperedPath `
+              -PrivateKeyPath $privateKey `
+              -OutputPath $tamperedOutput
+            if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $tamperedOutput)) {
+              throw "Package decryption accepted a tampered authenticated ciphertext."
+            }
+            $global:LASTEXITCODE = 0
+            Write-Host "PASS: AES-GCM authentication rejects a tampered encrypted package."
+
+          }
+          finally {
+            if (Test-Path -LiteralPath $temp) {
+              Remove-Item -LiteralPath $temp -Recurse -Force
+            }
+            $global:LASTEXITCODE = 0
+          }
+
+      - name: Encrypt validated package for owner's public key (optional)
+        id: encrypted_package
+        shell: pwsh
+        run: |
+          $publicKeyFile = "private-source/tools/package-encryption-public-base64.txt"
+          $keyIdFile = "private-source/tools/package-encryption-key-id.txt"
+
+          if (-not (Test-Path -LiteralPath $publicKeyFile) -or -not (Test-Path -LiteralPath $keyIdFile)) {
+            Write-Host "Owner package-encryption public key is not configured; no artifact will be uploaded."
+            "encrypted_path=" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          $publicBase64 = (Get-Content -LiteralPath $publicKeyFile -Raw).Trim()
+          $keyId = (Get-Content -LiteralPath $keyIdFile -Raw).Trim()
+          if ([string]::IsNullOrWhiteSpace($publicBase64) -or [string]::IsNullOrWhiteSpace($keyId)) {
+            throw "Owner package-encryption public key configuration is incomplete."
+          }
+
+          $appProject = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
+          $version = (dotnet msbuild $appProject -getProperty:InformationalVersion -nologo).Trim()
+          $zipPath = Join-Path $env:RUNNER_TEMP "XboxHub-$version-win-x64.zip"
+          if (-not (Test-Path -LiteralPath $zipPath)) { throw "Validated plaintext ZIP is missing from runner temporary storage." }
+
+          $encryptedPath = Join-Path $env:RUNNER_TEMP "XboxHub-$version-win-x64.xhubenc"
+          & pwsh -NoProfile -File "private-source/tools/Encrypt-XboxHubPackage.ps1" `
+            -PackagePath $zipPath `
+            -PublicKeyBase64 $publicBase64 `
+            -KeyId $keyId `
+            -OutputPath $encryptedPath
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $encryptedPath)) {
+            throw "Could not encrypt the package for the owner's public recipient key."
+          }
+          "encrypted_path=$encryptedPath" >> $env:GITHUB_OUTPUT
+
+      - name: Upload encrypted package only
+        if: ${{ steps.encrypted_package.outputs.encrypted_path != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: xboxhub-encrypted-offline-package
+          path: ${{ steps.encrypted_package.outputs.encrypted_path }}
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
 
       - name: Test updater replacement and rollback transactions
         shell: pwsh
