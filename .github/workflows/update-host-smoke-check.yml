@@ -97,6 +97,7 @@ jobs:
           if ! timeout 20 openssl s_client \
             -connect "$host:443" \
             -servername "$host" \
+            -verify 5 \
             -verify_hostname "$host" \
             -verify_return_error \
             </dev/null >"$output" 2>&1; then
