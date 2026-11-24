@@ -1,6 +1,6 @@
 Xbox Hub private-source build validation trigger
-Request: validate dual-key provisioning, strict signer, and authenticated encrypted-package round trip
+Request: validate authenticated encrypted package handoff after fixing the package-name guard syntax
 Source version: 0.1.7-preview.1
-Source commit: e769c065aac28f61ab88098fe16e9b5ed15aee78
-Scope: Windows x64 restore, app/updater publish, exact two-file ZIP validation, signing positive/negative tests, AES-256-GCM/RSA-OAEP package encryption/decryption round trip, tampered ciphertext rejection, and updater transaction tests.
-Security: throwaway ephemeral keys only. No owner private keys or credentials are used. No plaintext package, source archive, production key, TLS key, Cloudflare token, or credential is uploaded. Optional ciphertext upload remains skipped until the owner public encryption key is configured.
+Source commit: 721a95eec2c89cd4aae41cb165d9a3ab27f26be6
+Scope: Windows x64 restore, app/updater publish, exact two-file ZIP validation, strict signer positive/negative tests, AES-256-GCM/RSA-OAEP encryption/decryption round trip, tampered ciphertext rejection, and updater transaction tests.
+Security: ephemeral test keys only. No owner private keys or credentials are used. No plaintext package, source archive, production key, TLS key, Cloudflare token, or credential is uploaded. Optional ciphertext artifact upload remains skipped until the owner public encryption key is configured.
