@@ -1,7 +1,7 @@
 Xbox Hub private-source build validation trigger
-Request: verify final workflow report and byte-for-byte versioned ZIP copy integrity
+Request: validate production public-key provisioning and encrypted artifact handoff
 Source version: 0.1.7-preview.1
-Source commit: 59d7d3304786c53c8a9a80acb1de6e1b417b01d0
-Scope: Windows x64 restore, app/updater publish, exact two-file ZIP validation, versioned ZIP copy plus SHA-256 equality check, offline signer positive/negative tests, encrypted RSA recipient-key package round trip, tamper rejection, optional ciphertext-only upload (must skip until owner public key is configured), and updater transaction tests.
-Security: ephemeral CI-only keys/passphrase; no production secret or key is used. No plaintext package, private source archive, production key, TLS key, Cloudflare token, or credential is uploaded.
-Final check: verify versioned ZIP SHA-256 equality and conditional ciphertext-only reporting; this change is build-trigger-only.
+Source commit: cdc9f8801a773f217ee25e6db26ab226745982b5
+Scope: Windows x64 restore, app/updater publish, exact two-file ZIP validation, versioned ZIP copy plus SHA-256 equality check, offline signer positive/negative tests with ephemeral CI-only key, production owner RSA package-encryption public-key validation, encrypted package round trip and tamper rejection, ciphertext-only artifact upload, and updater transaction tests.
+Security: production private keys and passphrases remain offline on the owner's phone; CI uses only throwaway test signing keys and the configured public encryption key. No plaintext package, private source archive, production private key, TLS key, Cloudflare token, or credential is uploaded.
+Final check: confirm package key ID/fingerprint match, ciphertext-only artifact upload succeeds, and all regression tests pass.
