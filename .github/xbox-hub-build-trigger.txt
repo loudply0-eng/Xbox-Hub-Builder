@@ -1,6 +1,7 @@
 Xbox Hub private-source build validation trigger
-Request: refresh the encrypted Windows x64 candidate artifact after the offline Termux package-decryption helper and its CI regression tests were added. The app version and runtime source code are unchanged; this is a reproducibility and handoff refresh.
-Source version: 0.1.9
-Source commit: f94198cb1677be27f6d0dff4572b1d82933f0c64
-Scope: Windows x64 restore, WPF app and standalone updater publish, exact two-file app ZIP validation, offline signing helper checks, encrypted package handoff and tamper tests, updater replacement and rollback tests. The app's Updates and Settings pages must continue to require explicit user action before download and installation.
+Request: build the 0.1.10 Windows x64 candidate so the owner can validate the signed stable update path from installed 0.1.9.
+Source version: 0.1.10
+Source commit: e3cfa8ebfe1c94ab788e757a861834947e4b3e00
+Scope: Windows x64 restore, WPF app and standalone updater publish, exact two-file ZIP validation, offline signing helper syntax and disposable-key positive/negative tests, encrypted package handoff and tamper tests, updater replacement and rollback tests.
+Update behavior: startup and 12-hour signed-feed checks; manual check in Updates and Settings; never download or install until the user explicitly chooses Download and install update.
 Security: XCL remains a separate optional GPL-2.0-only runtime and is not bundled in the app package. Production private keys and passphrases remain offline; CI uses disposable test keys and the public package-encryption key only. Upload only the encrypted .xhubenc artifact. Never upload plaintext package, private source, game data, or production private keys.
