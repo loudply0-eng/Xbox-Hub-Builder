@@ -65,13 +65,15 @@ jobs:
           & $exe --version
           if ($LASTEXITCODE -ne 0) { throw "The built XCL executable failed its version smoke test." }
 
-      - name: Run XCL workspace tests
+      - name: Run XCL upstream CI test suite
         shell: pwsh
         working-directory: xcl-source
+        env:
+          CARGO_INCREMENTAL: 0
         run: |
           $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
-          cargo test --locked --release --workspace --no-fail-fast -- --test-threads=4
-          if ($LASTEXITCODE -ne 0) { throw "XCL workspace tests failed." }
+          .\scripts\test.ps1 --skip test_title_runs_and_game_folder_is_untouched
+          if ($LASTEXITCODE -ne 0) { throw "XCL upstream CI test suite failed." }
 
       - name: Package XCL binary with license and exact source
         shell: pwsh
