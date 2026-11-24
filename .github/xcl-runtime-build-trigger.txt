@@ -1,0 +1,1 @@
+Build pinned upstream XCL revision e50836bdf6f5c026f281d545ed86fb2f07ba6e6a for Windows x64; include GPL source and notices.
