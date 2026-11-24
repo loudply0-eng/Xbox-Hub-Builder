@@ -217,6 +217,54 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Independent verification of the signed envelope failed." }
 
             Write-Host "PASS: offline signer validated the payload and package, created the envelope, and verified its RSA signature."
+            # Negative case 1: reject a payload whose signed digest does not match the ZIP.
+            $badDigest = [ordered]@{}
+            foreach ($entry in $payload.GetEnumerator()) { $badDigest[$entry.Key] = $entry.Value }
+            $badDigest.packageSha256 = ("0" * 64)
+            $badDigestPath = Join-Path $temp "bad-digest.json"
+            $badDigestOutput = Join-Path $temp "bad-digest-envelope.json"
+            [System.IO.File]::WriteAllText($badDigestPath, ($badDigest | ConvertTo-Json -Depth 5), [System.Text.UTF8Encoding]::new($false))
+            & pwsh -NoProfile -File "private-source/tools/sign-update-manifest.ps1" `
+              -PayloadPath $badDigestPath `
+              -PackagePath $zipPath `
+              -PrivateKeyPath $testPrivate `
+              -KeyId $keyId `
+              -OutputPath $badDigestOutput
+            if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $badDigestOutput)) {
+              throw "Offline signer accepted a package digest mismatch."
+            }
+            Write-Host "PASS: signer rejects package digest mismatches."
+
+            # Negative case 2: reject a package URL that points away from the dedicated host.
+            $badHost = [ordered]@{}
+            foreach ($entry in $payload.GetEnumerator()) { $badHost[$entry.Key] = $entry.Value }
+            $badHost.packageUrl = "https://example.invalid/stable/XboxHub-99.0.0-win-x64.zip"
+            $badHostPath = Join-Path $temp "bad-host.json"
+            $badHostOutput = Join-Path $temp "bad-host-envelope.json"
+            [System.IO.File]::WriteAllText($badHostPath, ($badHost | ConvertTo-Json -Depth 5), [System.Text.UTF8Encoding]::new($false))
+            & pwsh -NoProfile -File "private-source/tools/sign-update-manifest.ps1" `
+              -PayloadPath $badHostPath `
+              -PackagePath $zipPath `
+              -PrivateKeyPath $testPrivate `
+              -KeyId $keyId `
+              -OutputPath $badHostOutput
+            if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $badHostOutput)) {
+              throw "Offline signer accepted a package URL on an untrusted host."
+            }
+            Write-Host "PASS: signer rejects cross-host package URLs."
+
+            # Negative case 3: reject a key ID that does not match the private key.
+            $badKeyOutput = Join-Path $temp "bad-key-envelope.json"
+            & pwsh -NoProfile -File "private-source/tools/sign-update-manifest.ps1" `
+              -PayloadPath $payloadPath `
+              -PackagePath $zipPath `
+              -PrivateKeyPath $testPrivate `
+              -KeyId "xboxhub-rsa3072-0000000000000000" `
+              -OutputPath $badKeyOutput
+            if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $badKeyOutput)) {
+              throw "Offline signer accepted a mismatched key ID."
+            }
+            Write-Host "PASS: signer rejects a key ID that does not match the private key."
           }
           finally {
             if (Test-Path -LiteralPath $temp) {
