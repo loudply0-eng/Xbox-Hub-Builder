@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: ivall/xcl
-          ref: e50836bdf6f5c026f281d545ed86fb2f07ba6e6a
+          ref: 808a8a4862272d6b8529231d094eb636e814bee1
           path: xcl-source
           persist-credentials: false
           fetch-depth: 1
@@ -80,7 +80,7 @@ jobs:
         run: |
           $source = Join-Path $env:GITHUB_WORKSPACE "xcl-source"
           $package = Join-Path $env:RUNNER_TEMP "xcl-runtime-package"
-          $sourceZip = Join-Path $env:RUNNER_TEMP "xcl-source-e50836b.zip"
+          $sourceZip = Join-Path $env:RUNNER_TEMP "xcl-source-808a8a4.zip"
           $runtimeZip = Join-Path $env:RUNNER_TEMP "xcl-runtime-win-x64-gpl2.zip"
           New-Item -ItemType Directory -Path $package -Force | Out-Null
 
@@ -89,7 +89,7 @@ jobs:
           Copy-Item -LiteralPath (Join-Path $source "THIRD_PARTY.md") -Destination (Join-Path $package "THIRD_PARTY.md")
           Copy-Item -LiteralPath (Join-Path $source "README.md") -Destination (Join-Path $package "README-upstream.md")
 
-          git -C $source archive --format=zip --output $sourceZip e50836bdf6f5c026f281d545ed86fb2f07ba6e6a
+          git -C $source archive --format=zip --output $sourceZip 808a8a4862272d6b8529231d094eb636e814bee1
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $sourceZip)) {
             throw "Could not include the exact upstream source archive."
           }
@@ -97,7 +97,7 @@ jobs:
 
           $metadata = @"
           Upstream: https://github.com/ivall/xcl
-          Commit: e50836bdf6f5c026f281d545ed86fb2f07ba6e6a
+          Commit: 808a8a4862272d6b8529231d094eb636e814bee1
           License: GPL-2.0-only
           Target: Windows x64 (MSVC)
           Build: cargo build --locked --release --workspace
