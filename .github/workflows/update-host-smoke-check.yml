@@ -1,0 +1,108 @@
+name: Xbox Hub update-host external health check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 4 * * 1"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/update-host-smoke-check.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xbox-hub-update-host-health
+  cancel-in-progress: true
+
+jobs:
+  probe-update-host:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify public DNS points to the dedicated Oracle host
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="updates.mahmoudaljuorany.store"
+          expected="152.70.15.170"
+          mapfile -t addresses < <(getent ahostsv4 "$host" | awk '{print $1}' | sort -u)
+          printf 'Resolved IPv4 addresses:\n'
+          printf '  %s\n' "${addresses[@]}"
+          if ! printf '%s\n' "${addresses[@]}" | grep -Fxq "$expected"; then
+            echo "ERROR: Expected DNS address $expected was not returned."
+            exit 1
+          fi
+          echo "PASS: public DNS includes the expected Oracle IPv4."
+
+      - name: Require HTTP to redirect to the same HTTPS hostname
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="updates.mahmoudaljuorany.store"
+          headers="$(mktemp)"
+          trap 'rm -f "$headers"' EXIT
+          code="$(curl --silent --show-error --max-time 20 \
+            --dump-header "$headers" --output /dev/null \
+            --write-out '%{http_code}' "http://$host/")"
+          echo "HTTP status: $code"
+          if [[ "$code" != "301" && "$code" != "308" ]]; then
+            cat "$headers"
+            echo "ERROR: HTTP must redirect to HTTPS without following the redirect."
+            exit 1
+          fi
+          if ! grep -Eiq "^location: https://$host/\r?$" "$headers"; then
+            cat "$headers"
+            echo "ERROR: HTTP redirect target is not the exact HTTPS host."
+            exit 1
+          fi
+          echo "PASS: HTTP redirects to the same HTTPS hostname."
+
+      - name: Verify public HTTPS certificate and stable manifest endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="updates.mahmoudaljuorany.store"
+          result="$(curl --silent --show-error --max-time 25 \
+            --output /dev/null --write-out '%{http_code} %{ssl_verify_result}' \
+            "https://$host/stable/manifest.json")"
+          echo "Manifest endpoint result: $result"
+          read -r status verify <<< "$result"
+          if [[ "$verify" != "0" ]]; then
+            echo "ERROR: Public TLS certificate validation failed."
+            exit 1
+          fi
+          if [[ "$status" != "200" && "$status" != "404" ]]; then
+            echo "ERROR: Manifest endpoint returned unexpected HTTP status $status."
+            exit 1
+          fi
+          if [[ "$status" == "404" ]]; then
+            echo "INFO: TLS is trusted; stable manifest is not published yet (expected before first release)."
+          else
+            echo "PASS: Stable manifest endpoint is responding over trusted HTTPS."
+          fi
+          echo "PASS: external HTTPS certificate validation succeeded."
+
+      - name: Verify the TLS hostname and certificate chain independently with OpenSSL
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="updates.mahmoudaljuorany.store"
+          output="$(mktemp)"
+          trap 'rm -f "$output"' EXIT
+          if ! timeout 20 openssl s_client \
+            -connect "$host:443" \
+            -servername "$host" \
+            -verify_hostname "$host" \
+            -verify_return_error \
+            </dev/null >"$output" 2>&1; then
+            cat "$output"
+            echo "ERROR: OpenSSL TLS verification failed."
+            exit 1
+          fi
+          grep -F "Verify return code: 0 (ok)" "$output"
+          echo "PASS: OpenSSL independently verified the public certificate chain."
