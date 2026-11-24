@@ -1,0 +1,102 @@
+name: Xbox Hub XCL adapter branch validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/xcl-adapter-build-trigger.txt"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xbox-hub-xcl-adapter-validation
+  cancel-in-progress: true
+
+jobs:
+  validate-private-xcl-adapter-branch:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the owner-controlled private feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: loudply0-eng/Xbox-Hub-for-PC
+          ref: feat/xcl-runtime-adapter-20261124
+          ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
+          path: private-source
+          persist-credentials: false
+          submodules: false
+          lfs: false
+          fetch-depth: 1
+
+      - name: Set up .NET 10 SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore and build the WPF application
+        shell: pwsh
+        run: |
+          $app = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
+          if (-not (Test-Path -LiteralPath $app)) { throw "Xbox Hub WPF project is missing." }
+          if (-not (Test-Path -LiteralPath "private-source/src/XboxHub.Desktop/Services/XclRuntimeService.cs")) {
+            throw "The XCL runtime adapter service is missing."
+          }
+          dotnet restore $app --runtime win-x64
+          if ($LASTEXITCODE -ne 0) { throw "Xbox Hub restore failed." }
+          dotnet build $app --configuration Release --runtime win-x64 --no-restore --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "Xbox Hub WPF build failed." }
+
+      - name: Restore and build the updater helper
+        shell: pwsh
+        run: |
+          $updater = "private-source/src/XboxHub.Updater/XboxHub.Updater.csproj"
+          dotnet restore $updater --runtime win-x64
+          if ($LASTEXITCODE -ne 0) { throw "Updater restore failed." }
+          dotnet build $updater --configuration Release --runtime win-x64 --no-restore --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "Updater build failed." }
+
+      - name: Run updater replacement and rollback tests
+        shell: pwsh
+        run: |
+          $testProject = "private-source/src/XboxHub.Updater.Tests/XboxHub.Updater.Tests.csproj"
+          if (-not (Test-Path -LiteralPath $testProject)) { throw "Updater transaction test project is missing." }
+          dotnet run --project $testProject --configuration Release --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "Updater replacement and rollback tests failed." }
+
+      - name: Validate the existing two-file update package contract
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $app = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
+          $updater = "private-source/src/XboxHub.Updater/XboxHub.Updater.csproj"
+          $appOut = Join-Path $env:RUNNER_TEMP "xcl-adapter-app"
+          $updaterOut = Join-Path $env:RUNNER_TEMP "xcl-adapter-updater"
+          $packageDir = Join-Path $env:RUNNER_TEMP "xcl-adapter-package"
+          $zip = Join-Path $env:RUNNER_TEMP "xcl-adapter-validation.zip"
+
+          dotnet publish $app --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o $appOut
+          if ($LASTEXITCODE -ne 0) { throw "Xbox Hub publish failed." }
+          dotnet publish $updater --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o $updaterOut
+          if ($LASTEXITCODE -ne 0) { throw "Updater publish failed." }
+
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $appOut "XboxHub.exe") -Destination (Join-Path $packageDir "XboxHub.exe")
+          Copy-Item -LiteralPath (Join-Path $updaterOut "XboxHub.Updater.exe") -Destination (Join-Path $packageDir "XboxHub.Updater.exe")
+          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zip -CompressionLevel Optimal -Force
+
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
+            if ($archive.Entries.Count -ne 2 -or $names -notcontains "XboxHub.exe" -or $names -notcontains "XboxHub.Updater.exe") {
+              throw "The update package must remain exactly XboxHub.exe plus XboxHub.Updater.exe."
+            }
+          }
+          finally { $archive.Dispose() }
+
+          Write-Host "PASS: app and updater build, updater tests pass, and the two-file package contract is unchanged."
+          Write-Host "No source, binaries, packages, signing keys, or artifacts were uploaded."
