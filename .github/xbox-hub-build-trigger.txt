@@ -1,7 +1,7 @@
 Xbox Hub private-source build validation trigger
-Request: validate production public-key provisioning and encrypted artifact handoff
-Source version: 0.1.7-preview.1
-Source commit: cdc9f8801a773f217ee25e6db26ab226745982b5
-Scope: Windows x64 restore, app/updater publish, exact two-file ZIP validation, versioned ZIP copy plus SHA-256 equality check, offline signer positive/negative tests with ephemeral CI-only key, production owner RSA package-encryption public-key validation, encrypted package round trip and tamper rejection, ciphertext-only artifact upload, and updater transaction tests.
+Request: build and validate Xbox Hub 0.1.8 in-app automatic update experience and encrypted artifact handoff
+Source version: 0.1.8-preview.1
+Source commit: 564e5a6d46379d017e453146088e075f85e422b6
+Scope: Windows x64 restore, WPF app and standalone updater publish, Settings manual update-check UI, startup and 12-hour automatic checks, automatic verified download/install/close/restart flow, exact two-file ZIP validation, versioned ZIP copy plus SHA-256 equality check, offline signer positive/negative tests with ephemeral CI-only key, production owner RSA package-encryption public-key validation, encrypted package round trip and tamper rejection, ciphertext-only artifact upload, and updater transaction tests.
 Security: production private keys and passphrases remain offline on the owner's phone; CI uses only throwaway test signing keys and the configured public encryption key. No plaintext package, private source archive, production private key, TLS key, Cloudflare token, or credential is uploaded.
 Final check: confirm package key ID/fingerprint match, ciphertext-only artifact upload succeeds, and all regression tests pass.
