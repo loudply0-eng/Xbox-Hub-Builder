@@ -140,7 +140,14 @@ jobs:
 
           $appProject = "private-source/src/XboxHub.Desktop/XboxHub.Desktop.csproj"
           $version = (dotnet msbuild $appProject -getProperty:InformationalVersion -nologo).Trim()
-          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^[0-9A-Za-z.-]+
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($version) -or $version -match '[^0-9A-Za-z.-]') {
+            throw "Could not determine a safe application informational version."
+          }
+          $versionedZip = Join-Path $env:RUNNER_TEMP ("XboxHub-" + $version + "-win-x64.zip")
+          Copy-Item -LiteralPath $zipPath -Destination $versionedZip -Force
+          Write-Host "Validated versioned package path: $versionedZip"
+          Write-Host "Package is temporary and will not be uploaded."
+
       - name: Test offline manifest signing with a throwaway CI key
         shell: pwsh
         run: |
