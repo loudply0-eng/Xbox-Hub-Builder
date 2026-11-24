@@ -1,6 +1,6 @@
 Xbox Hub private-source build validation trigger
-Request: verify valid workflow, Windows x64 package build, signer, encrypted package round trip, versioned ZIP handoff path, and updater transactions
+Request: validate repaired single-copy workflow and the complete versioned ciphertext handoff path
 Source version: 0.1.7-preview.1
-Source commit: 6b0c2e0954bf238d7373ce57aafcc9cf7238d19b
-Scope: Windows x64 restore, app/updater publish, exact two-file ZIP validation, create versioned runner-local ZIP, offline manifest signer positive/negative tests, AES-256-GCM/RSA-OAEP encrypted package round trip with a password-protected ephemeral RSA key, tamper rejection, and updater transaction tests.
-Security: ephemeral keys/passphrase only; no owner keys or production secrets are used. No plaintext package, private source, TLS key, Cloudflare token, or credential is uploaded. Optional ciphertext artifact remains skipped until the owner's package-encryption public key is configured.
+Source commit: 2f67f9c8604b02487a4142e0c3b87734f36a4062
+Scope: Windows x64 restore, app/updater publish, exact two-file ZIP validation, retain versioned runner-local ZIP, offline signer success/negative tests, encrypted RSA recipient key AES-256-GCM package round trip, authenticated tamper rejection, optional recipient ciphertext upload (must skip until owner public key is configured), and updater transaction tests.
+Security: all CI keys/passphrases are throwaway and temporary. No owner keys or production secrets are used. No plaintext package, source archive, production key, TLS key, Cloudflare token, or credential is uploaded.
