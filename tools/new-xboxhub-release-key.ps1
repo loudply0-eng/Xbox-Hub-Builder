@@ -97,7 +97,7 @@ try {
 
     if (-not (Test-Path -LiteralPath $tempSignPublic -PathType Leaf)) { throw "Release public-key DER file was not created." }
     $signPublicLength = (Get-Item -LiteralPath $tempSignPublic).Length
-    if ($signPublicLength -lt 400) { throw "Release public key is unexpectedly short ($signPublicLength bytes)." }
+    if ($signPublicLength -lt 400) { throw "Release public key is unexpectedly short." }
     $signBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($tempSignPublic))
     $signFingerprint = (Get-FileHash -LiteralPath $tempSignPublic -Algorithm SHA256).Hash.ToLowerInvariant()
     $signKeyId = "xboxhub-rsa3072-" + $signFingerprint.Substring(0, 16)
@@ -119,7 +119,7 @@ try {
 
     if (-not (Test-Path -LiteralPath $tempEncryptPublic -PathType Leaf)) { throw "Package-encryption public-key DER file was not created." }
     $encryptPublicLength = (Get-Item -LiteralPath $tempEncryptPublic).Length
-    if ($encryptPublicLength -lt 400) { throw "Package-encryption public key is unexpectedly short ($encryptPublicLength bytes)." }
+    if ($encryptPublicLength -lt 400) { throw "Package-encryption public key is unexpectedly short." }
     $encryptBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($tempEncryptPublic))
     $encryptFingerprint = (Get-FileHash -LiteralPath $tempEncryptPublic -Algorithm SHA256).Hash.ToLowerInvariant()
     $encryptKeyId = "xboxhub-package-rsa3072-" + $encryptFingerprint.Substring(0, 16)
@@ -141,6 +141,26 @@ try {
     Set-CurrentUserOnlyAcl -Path $decryptPrivate -IsDirectory $false
 
     Write-Host ""
+    $clipboardText = @(
+        "RELEASE SIGNING PUBLIC KEY (safe to share):"
+        "Key ID: $signKeyId"
+        "SHA-256: $signFingerprint"
+        "Base64 SPKI:"
+        $signBase64
+        ""
+        "PACKAGE ENCRYPTION PUBLIC KEY (safe to share):"
+        "Key ID: $encryptKeyId"
+        "SHA-256: $encryptFingerprint"
+        "Base64 SPKI:"
+        $encryptBase64
+    ) -join [Environment]::NewLine
+    try {
+        Set-Clipboard -Value $clipboardText
+        Write-Host "PUBLIC KEY INFORMATION COPIED TO CLIPBOARD. Paste it into the ChatGPT conversation." -ForegroundColor Green
+    } catch {
+        Write-Warning "Automatic clipboard copy was unavailable. Public values are printed below."
+    }
+
     Write-Host "Xbox Hub offline keys created successfully."
     Write-Host "Private release-signing key (KEEP SECRET): $signPrivate"
     Write-Host "Private package-decryption key (KEEP SECRET): $decryptPrivate"
