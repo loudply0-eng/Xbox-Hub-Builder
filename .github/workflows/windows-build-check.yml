@@ -294,7 +294,9 @@ jobs:
           New-Item -ItemType Directory -Path $temp | Out-Null
 
           try {
-            $zipPath = Join-Path $env:RUNNER_TEMP "XboxHub-win-x64-validation.zip"
+            $validationZip = Join-Path $env:RUNNER_TEMP "XboxHub-win-x64-validation.zip"
+            $zipPath = Join-Path $env:RUNNER_TEMP "XboxHub-0.1.7-preview.1-win-x64.zip"
+            Copy-Item -LiteralPath $validationZip -Destination $zipPath
             $privateKey = Join-Path $temp "ephemeral-package-private.pem"
             $publicDer = Join-Path $temp "ephemeral-package-public.der"
             $encryptedPath = Join-Path $temp "XboxHub-validation.xhubenc"
