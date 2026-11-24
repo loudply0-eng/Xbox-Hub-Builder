@@ -292,6 +292,8 @@ jobs:
 
           $temp = Join-Path $env:RUNNER_TEMP ("xboxhub-encryption-test-" + [guid]::NewGuid().ToString("N"))
           New-Item -ItemType Directory -Path $temp | Out-Null
+          $securePassphrase = $null
+          $previousPassphrase = $env:XBOX_TEST_PACKAGE_PASSPHRASE
 
           try {
             $validationZip = Join-Path $env:RUNNER_TEMP "XboxHub-win-x64-validation.zip"
@@ -304,57 +306,56 @@ jobs:
             $tamperedPath = Join-Path $temp "XboxHub-validation-tampered.xhubenc"
             $tamperedOutput = Join-Path $temp "must-not-exist.zip"
 
-            & $openssl.Source genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out $privateKey
-            if ($LASTEXITCODE -ne 0) { throw "Could not generate ephemeral package recipient key." }
+            $testPassphrase = "XboxHub-CI-" + [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
+            $env:XBOX_TEST_PACKAGE_PASSPHRASE = $testPassphrase
 
-            & $openssl.Source pkey -in $privateKey -pubout -outform DER -out $publicDer
+            & $openssl.Source genpkey -algorithm RSA -aes-256-cbc -pkeyopt rsa_keygen_bits:3072 -passout env:XBOX_TEST_PACKAGE_PASSPHRASE -out $privateKey
+            if ($LASTEXITCODE -ne 0) { throw "Could not generate encrypted ephemeral package recipient key." }
+
+            & $openssl.Source pkey -in $privateKey -passin env:XBOX_TEST_PACKAGE_PASSPHRASE -pubout -outform DER -out $publicDer
             if ($LASTEXITCODE -ne 0) { throw "Could not export ephemeral package recipient public key." }
 
             $publicBytes = [System.IO.File]::ReadAllBytes($publicDer)
             $publicBase64 = [Convert]::ToBase64String($publicBytes)
             $fingerprint = (Get-FileHash -LiteralPath $publicDer -Algorithm SHA256).Hash.ToLowerInvariant()
             $keyId = "xboxhub-package-rsa3072-" + $fingerprint.Substring(0, 16)
+            $securePassphrase = ConvertTo-SecureString $testPassphrase -AsPlainText -Force
 
-            & pwsh -NoProfile -File "private-source/tools/Encrypt-XboxHubPackage.ps1" `
-              -PackagePath $zipPath `
-              -PublicKeyBase64 $publicBase64 `
-              -KeyId $keyId `
-              -OutputPath $encryptedPath
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $encryptedPath)) {
-              throw "Xbox Hub package encryption helper failed."
-            }
-            $global:LASTEXITCODE = 0
+            & "private-source/tools/Encrypt-XboxHubPackage.ps1" -PackagePath $zipPath -PublicKeyBase64 $publicBase64 -KeyId $keyId -OutputPath $encryptedPath
+            if (-not (Test-Path -LiteralPath $encryptedPath)) { throw "Xbox Hub package encryption helper did not create a container." }
 
-            & pwsh -NoProfile -File "private-source/tools/Decrypt-XboxHubPackage.ps1" `
-              -EncryptedPackagePath $encryptedPath `
-              -PrivateKeyPath $privateKey `
-              -OutputPath $decryptedPath
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $decryptedPath)) {
-              throw "Xbox Hub package decryption helper failed."
-            }
-            $global:LASTEXITCODE = 0
+            & "private-source/tools/Decrypt-XboxHubPackage.ps1" -EncryptedPackagePath $encryptedPath -PrivateKeyPath $privateKey -OutputPath $decryptedPath -PrivateKeyPassphrase $securePassphrase
+            if (-not (Test-Path -LiteralPath $decryptedPath)) { throw "Xbox Hub package decryption helper did not create a ZIP." }
 
             $originalHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
             $decryptedHash = (Get-FileHash -LiteralPath $decryptedPath -Algorithm SHA256).Hash
             if ($originalHash -cne $decryptedHash) { throw "Encrypted package round-trip changed the original ZIP bytes." }
-            Write-Host "PASS: encrypted package decrypted byte-for-byte with the matching private key."
+            Write-Host "PASS: encrypted package decrypted byte-for-byte using the encrypted RSA private key and passphrase."
 
             $tamperedBytes = [System.IO.File]::ReadAllBytes($encryptedPath)
             $tamperedBytes[$tamperedBytes.Length - 1] = $tamperedBytes[$tamperedBytes.Length - 1] -bxor 1
             [System.IO.File]::WriteAllBytes($tamperedPath, $tamperedBytes)
 
-            & pwsh -NoProfile -File "private-source/tools/Decrypt-XboxHubPackage.ps1" `
-              -EncryptedPackagePath $tamperedPath `
-              -PrivateKeyPath $privateKey `
-              -OutputPath $tamperedOutput
-            if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $tamperedOutput)) {
+            $tamperRejected = $false
+            try {
+              & "private-source/tools/Decrypt-XboxHubPackage.ps1" -EncryptedPackagePath $tamperedPath -PrivateKeyPath $privateKey -OutputPath $tamperedOutput -PrivateKeyPassphrase $securePassphrase
+            }
+            catch {
+              $tamperRejected = $true
+            }
+            if (-not $tamperRejected -or (Test-Path -LiteralPath $tamperedOutput)) {
               throw "Package decryption accepted a tampered authenticated ciphertext."
             }
-            $global:LASTEXITCODE = 0
             Write-Host "PASS: AES-GCM authentication rejects a tampered encrypted package."
-
           }
           finally {
+            if ($null -ne $securePassphrase) { $securePassphrase.Dispose() }
+            if ($null -ne $previousPassphrase) {
+              $env:XBOX_TEST_PACKAGE_PASSPHRASE = $previousPassphrase
+            }
+            else {
+              Remove-Item Env:XBOX_TEST_PACKAGE_PASSPHRASE -ErrorAction SilentlyContinue
+            }
             if (Test-Path -LiteralPath $temp) {
               Remove-Item -LiteralPath $temp -Recurse -Force
             }
