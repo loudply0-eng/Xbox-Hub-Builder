@@ -1,6 +1,6 @@
 Xbox Hub private-source build validation trigger
-Request: validate the strict offline signing helper, end-to-end throwaway-key signature test, package integrity, and updater transaction tests
+Request: validate offline manifest signing success and negative security cases
 Source version: 0.1.7-preview.1
-Source commit: ae639b805e5e6c24b7458cede6e4bf60dae09c7b
-Scope: Windows x64 restore, self-contained app/updater publish, exact two-file package validation, parser-only checks of offline key/signing helpers, end-to-end manifest sign/verify with an ephemeral CI-only RSA test key, and updater transaction tests.
-Security: ephemeral test key exists only in runner temporary storage and is deleted; no production key is generated or used. No private source, packages, artifacts, signing keys, TLS keys, Cloudflare tokens, or credentials are uploaded.
+Source commit: afb0b80f724400cc30173790b70ce3f3cee3413f
+Scope: Windows x64 restore, self-contained app/updater publish, exact two-file package validation, parser-only signing helper checks, ephemeral RSA-3072 signing and independent verification, rejection of wrong package digest/cross-host URL/mismatched key ID, and updater transaction tests.
+Security: only throwaway CI key is used in temporary runner storage and deleted. No production key or credential is used. No private source, packages, artifacts, signing keys, TLS keys, or Cloudflare tokens are uploaded.
