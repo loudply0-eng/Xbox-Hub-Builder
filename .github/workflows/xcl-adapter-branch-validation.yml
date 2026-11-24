@@ -84,10 +84,10 @@ jobs:
           $packageDir = Join-Path $env:RUNNER_TEMP "xcl-adapter-package"
           $zip = Join-Path $env:RUNNER_TEMP "xcl-adapter-validation.zip"
 
-          dotnet publish $app --configuration Release --runtime win-x64 --self-contained true --no-restore -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o $appOut
+          dotnet publish $app --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o $appOut
           if ($LASTEXITCODE -ne 0) { throw "Xbox Hub publish failed." }
 
-          dotnet publish $updater --configuration Release --runtime win-x64 --self-contained true --no-restore -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o $updaterOut
+          dotnet publish $updater --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o $updaterOut
           if ($LASTEXITCODE -ne 0) { throw "Updater publish failed." }
 
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
