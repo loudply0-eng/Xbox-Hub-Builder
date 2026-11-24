@@ -1,6 +1,6 @@
 Xbox Hub private-source build validation trigger
-Request: build and validate Xbox Hub 0.1.9-preview.1 with experimental XCL runtime adapter.
-Source version: 0.1.9-preview.1
-Source commit: c3bef79d47ed9ab95ff1cc834c417d2c801cd8fc
-Scope: Windows x64 restore, WPF app and standalone updater publish, XCL executable selection/version verification, Xbox GDK PE import inspection, guarded XCL launch, configurable XCL_PAGE_BUDGET_MB defaulting to 6144 MiB, exact two-file app ZIP validation, offline signing helper parser checks, updater transaction tests.
-Security: XCL remains a separate GPL-2.0-only runtime and is not bundled in the app package. Production private keys and passphrases remain offline; CI uses no production private key. No plaintext app package or private source is uploaded.
+Request: build and validate Xbox Hub 0.1.9 with explicit user approval before update download and installation.
+Source version: 0.1.9
+Source commit: b368f482386618578a92be56a68ce6085b577581
+Scope: Windows x64 restore, WPF app and standalone updater publish, exact two-file app ZIP validation, offline signing helper checks, encrypted package handoff tests, updater replacement and rollback tests. Verify the new Updates and Settings page install buttons compile.
+Security: XCL remains a separate optional GPL-2.0-only runtime and is not bundled in the app package. Production private keys and passphrases remain offline; CI uses no production private key. No plaintext app package or private source is uploaded.
