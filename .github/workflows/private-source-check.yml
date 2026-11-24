@@ -2,6 +2,8 @@ name: Private source connectivity check
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
