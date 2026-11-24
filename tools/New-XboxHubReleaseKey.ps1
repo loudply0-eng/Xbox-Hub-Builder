@@ -95,9 +95,10 @@ try {
         throw "OpenSSL failed to export the release-signing public key."
     }
 
-    $signPublicBytes = [System.IO.File]::ReadAllBytes($tempSignPublic)
-    if ($signPublicBytes.Length -lt 400) { throw "Release public key is unexpectedly short." }
-    $signBase64 = [Convert]::ToBase64String($signPublicBytes)
+    if (-not (Test-Path -LiteralPath $tempSignPublic -PathType Leaf)) { throw "Release public-key DER file was not created." }
+    $signPublicLength = (Get-Item -LiteralPath $tempSignPublic).Length
+    if ($signPublicLength -lt 400) { throw "Release public key is unexpectedly short ($signPublicLength bytes)." }
+    $signBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($tempSignPublic))
     $signFingerprint = (Get-FileHash -LiteralPath $tempSignPublic -Algorithm SHA256).Hash.ToLowerInvariant()
     $signKeyId = "xboxhub-rsa3072-" + $signFingerprint.Substring(0, 16)
 
@@ -116,9 +117,10 @@ try {
         throw "OpenSSL failed to export the package-encryption public key."
     }
 
-    $encryptPublicBytes = [System.IO.File]::ReadAllBytes($tempEncryptPublic)
-    if ($encryptPublicBytes.Length -lt 400) { throw "Package-encryption public key is unexpectedly short." }
-    $encryptBase64 = [Convert]::ToBase64String($encryptPublicBytes)
+    if (-not (Test-Path -LiteralPath $tempEncryptPublic -PathType Leaf)) { throw "Package-encryption public-key DER file was not created." }
+    $encryptPublicLength = (Get-Item -LiteralPath $tempEncryptPublic).Length
+    if ($encryptPublicLength -lt 400) { throw "Package-encryption public key is unexpectedly short ($encryptPublicLength bytes)." }
+    $encryptBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($tempEncryptPublic))
     $encryptFingerprint = (Get-FileHash -LiteralPath $tempEncryptPublic -Algorithm SHA256).Hash.ToLowerInvariant()
     $encryptKeyId = "xboxhub-package-rsa3072-" + $encryptFingerprint.Substring(0, 16)
 
