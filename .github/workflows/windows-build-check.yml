@@ -145,8 +145,10 @@ jobs:
           }
           $versionedZip = Join-Path $env:RUNNER_TEMP ("XboxHub-" + $version + "-win-x64.zip")
           Copy-Item -LiteralPath $zipPath -Destination $versionedZip -Force
+          $versionedHash = (Get-FileHash -LiteralPath $versionedZip -Algorithm SHA256).Hash
+          if ($versionedHash -cne $hash) { throw "Versioned ZIP copy does not match the validated package bytes." }
           Write-Host "Validated versioned package path: $versionedZip"
-          Write-Host "Package is temporary and will not be uploaded."
+          Write-Host "Versioned package SHA-256 matches the validated archive."
 
       - name: Test offline manifest signing with a throwaway CI key
         shell: pwsh
@@ -429,5 +431,12 @@ jobs:
         if: success()
         shell: pwsh
         run: |
-          Write-Host "Xbox Hub for PC app and standalone updater published successfully."
-          Write-Host "No source files, packages, keys, or build artifacts were uploaded."
+          Write-Host "Xbox Hub for PC app and standalone updater validated successfully."
+          Write-Host "No private source, plaintext package, signing key, decryption key, or credential was uploaded."
+          $encryptedPath = "${{ steps.encrypted_package.outputs.encrypted_path }}"
+          if (-not [string]::IsNullOrWhiteSpace($encryptedPath)) {
+            Write-Host "Only the authenticated encrypted package container was uploaded as a short-lived artifact."
+          }
+          else {
+            Write-Host "No package artifact was uploaded because the owner's public package-encryption key is not configured."
+          }
