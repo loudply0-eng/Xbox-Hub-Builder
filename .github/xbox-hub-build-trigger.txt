@@ -1,6 +1,6 @@
 Xbox Hub private-source build validation trigger
-Request: rerun complete signer security regression after normalizing expected PowerShell exit codes
+Request: validate strict offline signing and authenticated encrypted package handoff
 Source version: 0.1.7-preview.1
-Source commit: afb0b80f724400cc30173790b70ce3f3cee3413f
-Scope: Windows x64 restore, self-contained app/updater publish, exact two-file ZIP validation, offline signer success test, negative tests for digest mismatch/cross-host URL/mismatched key ID, and updater transaction tests.
-Security: throwaway CI key only; all temporary secrets are deleted. No production key, private source, artifacts, packages, TLS keys, Cloudflare tokens, or credentials are uploaded.
+Source commit: c436ceb0f990592f64e4f4c71e696a3dfb4e570e
+Scope: Windows x64 restore, self-contained app/updater publish, exact two-file ZIP validation, offline signer positive/negative tests, RSA-OAEP/AES-256-GCM package encryption/decryption round trip, tampered ciphertext rejection, and updater transaction tests.
+Security: CI uses throwaway ephemeral keys only. The owner package-encryption key files are not yet present, so the optional encrypted artifact upload must remain skipped. No plaintext package, production key, private source, TLS key, Cloudflare token, or credential is uploaded.
