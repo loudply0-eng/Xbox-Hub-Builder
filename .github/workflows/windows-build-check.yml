@@ -233,6 +233,7 @@ jobs:
             if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $badDigestOutput)) {
               throw "Offline signer accepted a package digest mismatch."
             }
+            $global:LASTEXITCODE = 0
             Write-Host "PASS: signer rejects package digest mismatches."
 
             # Negative case 2: reject a package URL that points away from the dedicated host.
@@ -251,6 +252,7 @@ jobs:
             if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $badHostOutput)) {
               throw "Offline signer accepted a package URL on an untrusted host."
             }
+            $global:LASTEXITCODE = 0
             Write-Host "PASS: signer rejects cross-host package URLs."
 
             # Negative case 3: reject a key ID that does not match the private key.
@@ -264,6 +266,7 @@ jobs:
             if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $badKeyOutput)) {
               throw "Offline signer accepted a mismatched key ID."
             }
+            $global:LASTEXITCODE = 0
             Write-Host "PASS: signer rejects a key ID that does not match the private key."
           }
           finally {
