@@ -705,6 +705,29 @@ def atomic_replace_bytes(path: Path, data: bytes, mode: int = 0o644) -> None:
             pass
 
 
+def write_release_state(path: Path, payload: dict[str, Any], metadata: dict[str, Any]) -> None:
+    version = payload.get("version")
+    sequence = payload.get("releaseSequence")
+    package_hash = payload.get("packageSha256")
+    source_sha = metadata.get("sourceSha")
+    builder_run_id = metadata.get("builderRunId")
+    if (not isinstance(version, str) or not STABLE_VERSION_RE.fullmatch(version) or
+            type(sequence) is not int or sequence != release_sequence(version) or
+            not isinstance(package_hash, str) or not HEX_SHA_RE.fullmatch(package_hash) or
+            not isinstance(source_sha, str) or not SOURCE_SHA_RE.fullmatch(source_sha) or
+            type(builder_run_id) is not int or builder_run_id <= 0):
+        fail("Cannot persist an invalid successful-publication identity.")
+    state = {
+        "version": version,
+        "releaseSequence": sequence,
+        "packageSha256": package_hash,
+        "sourceSha": source_sha,
+        "builderRunId": builder_run_id,
+    }
+    encoded = (json.dumps(state, separators=(",", ":")) + "\n").encode("utf-8")
+    atomic_replace_bytes(path, encoded, mode=0o600)
+
+
 def http_verify_published(stable_dir: Path, package_name: str, package: bytes, envelope: bytes) -> None:
     manifest_url = f"https://{PACKAGE_HOST}/stable/manifest.json"
     package_url = f"https://{PACKAGE_HOST}/stable/{package_name}"
@@ -752,6 +775,8 @@ def publish_candidate(config: Config, metadata: dict[str, Any], header: dict[str
             if current.get("version") != payload.get("version") or current.get("packageSha256") != payload.get("packageSha256"):
                 fail("A release sequence is already occupied by different package bytes.")
             http_verify_published(config.stable_dir, header["originalFileName"], package, manifest_path.read_bytes())
+            # Repair a missing ledger after a crash between manifest commit and state write.
+            write_release_state(config.state_file, payload, metadata)
             return "already-published"
     package_path = config.stable_dir / header["originalFileName"]
     if package_path.exists():
@@ -772,28 +797,7 @@ def publish_candidate(config: Config, metadata: dict[str, Any], header: dict[str
         else:
             atomic_replace_bytes(manifest_path, previous_manifest_bytes)
         raise
-    config.state_file.parent.mkdir(parents=True, exist_ok=True)
-    state = {
-        "version": payload["version"],
-        "releaseSequence": payload["releaseSequence"],
-        "packageSha256": payload["packageSha256"],
-        "sourceSha": metadata["sourceSha"],
-        "builderRunId": metadata["builderRunId"],
-    }
-    fd, state_tmp = tempfile.mkstemp(prefix=".xboxhub-state-", dir=str(config.state_file.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump(state, stream, separators=(",", ":"))
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(state_tmp, 0o600)
-        os.replace(state_tmp, config.state_file)
-    finally:
-        try:
-            os.unlink(state_tmp)
-        except FileNotFoundError:
-            pass
+    write_release_state(config.state_file, payload, metadata)
     return "published"
 
 
@@ -835,6 +839,8 @@ def run_once(config: Config, vault: OciVaultCrypto | None = None) -> str:
                 fail("Stable manifest is current but its local package bytes do not match candidate metadata.")
             manifest_bytes = manifest_path.read_bytes()
             http_verify_published(config.stable_dir, package_name, package, manifest_bytes)
+            # Rebuild a missing ledger only after exact local and public bytes verify.
+            write_release_state(config.state_file, current, metadata)
             return "already-current"
     if vault is None:
         fail("OCI Vault client is required for a new stable release.")
