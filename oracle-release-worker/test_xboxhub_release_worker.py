@@ -67,6 +67,17 @@ class WorkerTests(unittest.TestCase):
             path=Path(td)/"candidate.xhubenc"; path.write_bytes(data)
             with self.assertRaisesRegex(RuntimeError,"exactly the two Xbox Hub"):
                 w.decrypt_package(path,meta,FakeVault(self.private,key))
+    def test_legacy_stable_manifest_sequence_remains_readable(self):
+        legacy = {
+            "schemaVersion":1,"productId":w.PRODUCT,"channel":"stable","version":"0.1.10",
+            "releaseSequence":2,"platform":"windows","architecture":"x64","packageFormat":"zip",
+            "packageUrl":w.PACKAGE_BASE+"XboxHub-0.1.10-win-x64.zip","packageSize":1024,
+            "packageSha256":"b"*64,"minimumUpdaterVersion":"0.1.9"
+        }
+        w.validate_manifest(legacy, legacy_compatible=True)
+        with self.assertRaisesRegex(RuntimeError, "does not match"):
+            w.validate_manifest(legacy)
+
     def test_release_sequence_is_bound_to_semver(self):
         self.assertEqual(w.release_sequence_for_version("0.1.11"), 1000011)
         with self.assertRaisesRegex(RuntimeError, "does not match"):

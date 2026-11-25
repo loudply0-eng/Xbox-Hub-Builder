@@ -150,13 +150,15 @@ def release_sequence_for_version(version):
         raise RuntimeError("Version components exceed the supported release-sequence range.")
     return major * 1_000_000_000_000 + minor * 1_000_000 + patch
 
-def validate_manifest(m):
+def validate_manifest(m, *, legacy_compatible=False):
     if not isinstance(m, dict) or type(m.get("schemaVersion")) is not int or m.get("schemaVersion") != 1 or m.get("productId") != PRODUCT or m.get("channel") != "stable":
         raise RuntimeError("Manifest schema, product, or channel is invalid.")
     if m.get("platform") != "windows" or m.get("architecture") != "x64" or m.get("packageFormat") != "zip":
         raise RuntimeError("Manifest platform or package format is invalid.")
     expected_sequence = release_sequence_for_version(m.get("version", ""))
-    if type(m.get("releaseSequence")) is not int or m["releaseSequence"] != expected_sequence:
+    if type(m.get("releaseSequence")) is not int or m["releaseSequence"] <= 0:
+        raise RuntimeError("Release sequence is invalid.")
+    if not legacy_compatible and m["releaseSequence"] != expected_sequence:
         raise RuntimeError("Release sequence does not match the stable semantic version.")
     if not isinstance(m.get("packageSize"), int) or not (0 < m["packageSize"] <= MAX_PACKAGE):
         raise RuntimeError("Package size is invalid.")
@@ -172,18 +174,23 @@ def validate_manifest(m):
         or parsed_url.netloc != "updates.mahmoudaljuorany.store"
         or parsed_url.query or parsed_url.fragment):
         raise RuntimeError("Package URL is outside the configured stable HTTPS feed.")
-    if not isinstance(m.get("title"), str) or not m["title"].strip() or len(m["title"]) > 200:
+    title = m.get("title", "")
+    date_value = m.get("date", "")
+    changes = m.get("changes", [])
+    if (not isinstance(title, str) or (not legacy_compatible and not title.strip())
+        or len(title) > 200):
         raise RuntimeError("Manifest title is invalid.")
-    try:
-        datetime.date.fromisoformat(m.get("date", ""))
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError("Manifest date is invalid.") from exc
-    changes = m.get("changes")
-    if (not isinstance(changes, list) or not 1 <= len(changes) <= 20
+    if date_value or not legacy_compatible:
+        try:
+            datetime.date.fromisoformat(date_value)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Manifest date is invalid.") from exc
+    if (not isinstance(changes, list) or (not legacy_compatible and not 1 <= len(changes) <= 20)
+        or len(changes) > 20
         or any(not isinstance(item, str) or not item.strip() or len(item) > 500 for item in changes)):
         raise RuntimeError("Manifest changelog is invalid.")
 
-def verify_envelope(raw):
+def verify_envelope(raw, *, legacy_compatible=False):
     if not raw or len(raw) > MAX_JSON:
         raise RuntimeError("Signed manifest size is invalid.")
     try:
@@ -196,7 +203,7 @@ def verify_envelope(raw):
         manifest = json.loads(payload)
     except (ValueError, KeyError, TypeError, InvalidSignature) as exc:
         raise RuntimeError("Signed manifest failed cryptographic or JSON validation.") from exc
-    validate_manifest(manifest)
+    validate_manifest(manifest, legacy_compatible=legacy_compatible)
     return manifest
 
 def validate_candidate(release, metadata, github):
@@ -380,7 +387,7 @@ def main():
         directory = Path(os.environ.get("XHUB_RELEASE_DIRECTORY", "/var/www/xbox-hub-updates/stable"))
         directory.mkdir(parents=True, exist_ok=True)
         manifest = directory / "manifest.json"
-        current = int(verify_envelope(manifest.read_bytes())["releaseSequence"]) if manifest.exists() else 0
+        current = int(verify_envelope(manifest.read_bytes(), legacy_compatible=True)["releaseSequence"]) if manifest.exists() else 0
         candidates = []
         for release in github.releases():
             metadata = get_metadata(release, github)
