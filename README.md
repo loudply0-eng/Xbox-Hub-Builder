@@ -23,20 +23,20 @@ The Windows build workflow runs on manual dispatch, when the trusted build-trigg
 
 ## Latest Xbox Hub build — 2026-11-25
 
-<https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45527708556>
+<https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45529059625>
 
-- Result: **success** (workflow run 45; all three jobs succeeded).
-- Source: private `loudply0-eng/Xbox-Hub-for-PC` `main`, commit `2d5dd4564597f9bb343c1da88a39c316de306e59`.
+- Result: **success** (workflow run 46; all three jobs succeeded).
+- Source: private `loudply0-eng/Xbox-Hub-for-PC` `main`, commit `d5784af33a173f844a9a84fe362d18531df5ada7`.
 - App version: `0.1.11`.
 - Windows x64 package: `XboxHub-0.1.11-win-x64.zip`.
-- Plaintext package size: `91,686,495` bytes.
-- Plaintext package SHA-256: `3B13BFA85CB8B3C170ECE3934E40F02948BEF1B7AEBA82082ED7460A03596817`.
-- Uploaded artifact: `xboxhub-encrypted-offline-package` (encrypted `.xhubenc` only; artifact ID `14982993087`).
-- Artifact expiry: **2026-11-28 01:43:53 UTC**.
+- Plaintext package size: `91,686,459` bytes.
+- Plaintext package SHA-256: `F08A8082164AA7DF52FCF3925E340975268C692C50423D4BD8608ECA32498E52`.
+- Uploaded artifact: `xboxhub-encrypted-offline-package` (encrypted `.xhubenc` only; artifact ID `14983199517`).
+- Artifact expiry: **2026-11-28 01:55:01 UTC**.
 
-The successful run restored and published the app and standalone updater, validated the exact two-file ZIP, passed offline signature-helper positive/negative checks with throwaway keys, verified package encryption/decryption round-trip and tamper rejection, and passed updater replacement, rollback, and path-validation tests. The upload contains only the authenticated encrypted package. The plaintext ZIP, private source, production signing key, package-decryption key, and passphrases were not uploaded.
+The successful run checked out the exact current private-source commit, restored and published the app and standalone updater, validated the exact two-file ZIP, passed offline signature-helper positive/negative checks with throwaway keys, verified package encryption/decryption round-trip and tamper rejection, and passed updater replacement, rollback, and path-validation tests. The upload contains only the authenticated encrypted package. The plaintext ZIP, private source, production signing key, package-decryption key, and passphrases were not uploaded.
 
-This is a **0.1.11 release candidate build**, not a published stable release. Manual Windows acceptance testing of this exact candidate and the complete live-feed update test remain outstanding. The package digest above is for the plaintext ZIP created on the isolated runner, not the encrypted GitHub artifact archive.
+This is a **0.1.11 candidate build**, not a published stable release. Manual Windows acceptance testing of this exact candidate and the complete live-feed update test remain outstanding. The plaintext digest above identifies the ZIP produced inside the isolated runner; it is not the checksum of the encrypted GitHub artifact archive.
 
 ## Automatic update service status
 
