@@ -14,7 +14,7 @@ Public repository for reviewed build automation only. The authoritative applicat
 
 - private-source-check.yml — verifies the read-only private-source connection and tests offline helper tools with disposable keys.
 - windows-build-check.yml — Windows x64 restore/publish, exact two-file ZIP validation, offline manifest-signer positive/negative tests, encrypted-package round-trip and tamper tests, metadata generation, and updater replacement/rollback tests.
-- release-agent-tests.yml — compiles the Oracle release agent and local key-import helper, checks OCI SDK crypto request models, validates the Oracle Linux installer syntax, and runs 16 cryptographic/release-metadata regression tests.
+- release-agent-tests.yml — compiles the Oracle release agent and local key-import helper, checks OCI SDK crypto request models, validates the Oracle Linux installer syntax, and runs the cryptographic/release-metadata regression suite. The suite now contains 18 tests; the latest two checks cover stable-manifest rollback after failed HTTPS verification and endpoint revalidation when a candidate is already current. Those two additions are awaiting their next Actions result.
 - xcl-runtime-windows-build.yml — builds the separately licensed XCL runtime from its pinned upstream source.
 - update-host-smoke-check.yml — scheduled external DNS, HTTP redirect, TLS-chain, and stable-manifest endpoint checks.
 - deploy/xboxhub_release_agent.py — Oracle Linux release agent using the VM's OCI Instance Principal and two narrowly scoped Vault HSM keys.
