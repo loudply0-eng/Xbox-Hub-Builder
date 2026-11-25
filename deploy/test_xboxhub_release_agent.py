@@ -309,7 +309,7 @@ class ReleaseAgentTests(unittest.TestCase):
                 "builderRunAttempt": 1,
             }
             with patch.object(agent, "latest_candidate_artifact", return_value=({}, metadata, {"url": "https://github.com/package-artifact", "digest": "sha256:" + ("b" * 64), "size": 1000})):
-                with patch.object(agent, "load_trusted_public_key", return_value=public_key):
+                with patch.object(agent, "verify_existing_manifest", return_value=payload):
                     with patch.object(agent, "download_encrypted_package", side_effect=AssertionError("large artifact must not be downloaded")):
                         self.assertEqual(agent.run_once(config, None), "already-current")
 
