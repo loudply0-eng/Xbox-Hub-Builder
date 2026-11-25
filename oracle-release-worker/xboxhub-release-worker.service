@@ -1,0 +1,21 @@
+[Unit]
+Description=Xbox Hub OCI Vault stable-release publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=opc
+SupplementaryGroups=nginx
+EnvironmentFile=/etc/xboxhub-release-worker.env
+WorkingDirectory=/opt/xboxhub-release-worker
+ExecStart=/opt/xboxhub-release-worker/venv/bin/python /opt/xboxhub-release-worker/xboxhub_release_worker.py
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/www/xbox-hub-updates/stable

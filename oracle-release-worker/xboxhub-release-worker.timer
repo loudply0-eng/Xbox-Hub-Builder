@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll Xbox Hub encrypted candidates every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=45
+Unit=xboxhub-release-worker.service
+
+[Install]
+WantedBy=timers.target
