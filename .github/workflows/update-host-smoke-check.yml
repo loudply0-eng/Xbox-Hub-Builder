@@ -22,11 +22,6 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    env:
-      # Set this repository Actions variable to "true" after the first stable
-      # publication. Before that deliberate activation, HTTP 404 is expected.
-      XBOXHUB_REQUIRE_STABLE_FEED: "true"
-
     steps:
       - name: Check out public release-verification key
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -76,6 +71,8 @@ jobs:
       - name: Verify public HTTPS certificate and stable manifest endpoint
         id: manifest
         shell: bash
+        env:
+          XBOXHUB_REQUIRE_STABLE_FEED: 'true'
         run: |
           set -euo pipefail
           host="updates.mahmoudaljuorany.store"
