@@ -1,0 +1,30 @@
+name: Oracle release worker validation
+on:
+  pull_request:
+    paths:
+      - "oracle-release-worker/**"
+      - ".github/workflows/oracle-release-worker-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "oracle-release-worker/**"
+      - ".github/workflows/oracle-release-worker-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out builder repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install test dependencies
+        run: python3 -m pip install "cryptography>=41,<46" "requests>=2.31,<3"
+      - name: Compile worker and run unit tests
+        working-directory: oracle-release-worker
+        run: |
+          python3 -m py_compile xboxhub_release_worker.py
+          python3 -m unittest -v
