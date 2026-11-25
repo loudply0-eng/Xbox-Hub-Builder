@@ -58,6 +58,7 @@ fetch_file "xboxhub_release_agent.py" "$APP_DIR/xboxhub_release_agent.py"
 fetch_file "requirements.txt" "$APP_DIR/requirements.txt"
 fetch_file "xboxhub-release-agent.service" "/etc/systemd/system/xboxhub-release-agent.service"
 fetch_file "xboxhub-release-agent.timer" "/etc/systemd/system/xboxhub-release-agent.timer"
+fetch_file "xboxhub-release-agent-check.service" "/etc/systemd/system/xboxhub-release-agent-check.service"
 
 python3 -m venv "$APP_DIR/venv"
 "$APP_DIR/venv/bin/python" -m pip install --disable-pip-version-check --upgrade pip
@@ -88,11 +89,13 @@ chmod 0600 "$ENV_FILE"
 
 systemctl daemon-reload
 systemctl restart nginx
+systemctl start xboxhub-release-agent-check.service
 systemctl enable --now xboxhub-release-agent.timer
 systemctl start xboxhub-release-agent.service
 
 echo
 echo "Xbox Hub release agent installed."
+echo "Vault test: systemctl status xboxhub-release-agent-check.service"
 echo "Timer: systemctl status xboxhub-release-agent.timer"
 echo "Last run: systemctl status xboxhub-release-agent.service"
 echo "Logs: journalctl -u xboxhub-release-agent.service -n 100 --no-pager"
