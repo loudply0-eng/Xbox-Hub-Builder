@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Xbox Hub stable publisher: GitHub encrypted handoff -> OCI Vault HSM -> HTTPS feed."""
 from __future__ import annotations
-import base64, hashlib, json, logging, os, re, struct, tempfile, urllib.parse, zipfile
+import base64, datetime, hashlib, json, logging, os, re, struct, tempfile, urllib.parse, zipfile
 from pathlib import Path
 import requests
 from cryptography.exceptions import InvalidSignature, InvalidTag
@@ -47,7 +47,9 @@ class GitHub:
             "User-Agent": "XboxHub-OCI-Release-Worker/1.0"
         })
         repo = os.environ.get("XHUB_GITHUB_REPOSITORY", REPO).strip()
-        self.base = "https://api.github.com/repos/" + repo
+        if repo != REPO:
+            raise RuntimeError("The configured GitHub repository is not the trusted Xbox Hub builder.")
+        self.base = "https://api.github.com/repos/" + REPO
 
     def json(self, url, limit=8 * 1024 * 1024):
         r = self.session.get(url, timeout=(15, 45), allow_redirects=False)
@@ -56,8 +58,23 @@ class GitHub:
         return r.json()
 
     def releases(self):
-        items = self.json(self.base + "/releases?per_page=100")
-        return [x for x in items if isinstance(x, dict) and str(x.get("tag_name", "")).startswith(TAG_PREFIX)]
+        items = []
+        for page in range(1, 11):
+            current = self.json(self.base + f"/releases?per_page=100&page={page}")
+            if not isinstance(current, list):
+                raise RuntimeError("GitHub release listing is malformed.")
+            items.extend(current)
+            if len(current) < 100:
+                break
+        else:
+            raise RuntimeError("GitHub returned more than 1,000 releases; refusing a partial scan.")
+        return [
+            x for x in items
+            if isinstance(x, dict)
+            and str(x.get("tag_name", "")).startswith(TAG_PREFIX)
+            and x.get("draft") is False
+            and x.get("prerelease") is True
+        ]
 
     def build_run(self, run_id):
         return self.json(self.base + "/actions/runs/" + str(run_id), MAX_JSON)
@@ -68,7 +85,10 @@ class GitHub:
         allowed_redirect_hosts = {"release-assets.githubusercontent.com", "objects.githubusercontent.com"}
         total = 0
         with self.session.get(url, stream=True, timeout=(20, 180), allow_redirects=True) as r:
-            if r.status_code != 200 or urllib.parse.urlparse(r.url).hostname not in allowed_redirect_hosts:
+            redirect_hosts = [urllib.parse.urlparse(h.url).hostname for h in r.history]
+            if (r.status_code != 200
+                or urllib.parse.urlparse(r.url).hostname not in allowed_redirect_hosts
+                or any(host not in {"github.com", *allowed_redirect_hosts} for host in redirect_hosts)):
                 raise RuntimeError("GitHub asset redirect or response is not trusted.")
             with path.open("xb") as out:
                 for chunk in r.iter_content(1024 * 1024):
@@ -122,24 +142,46 @@ class Vault:
         trusted_public_key().verify(signature, payload, padding.PKCS1v15(), hashes.SHA256())
         return signature
 
+def release_sequence_for_version(version):
+    if not re.fullmatch(r"\d+\.\d+\.\d+", str(version)):
+        raise RuntimeError("Stable version is invalid.")
+    major, minor, patch = (int(part) for part in version.split("."))
+    if max(major, minor, patch) >= 1_000_000:
+        raise RuntimeError("Version components exceed the supported release-sequence range.")
+    return major * 1_000_000_000_000 + minor * 1_000_000 + patch
+
 def validate_manifest(m):
-    if not isinstance(m, dict) or m.get("schemaVersion") != 1 or m.get("productId") != PRODUCT or m.get("channel") != "stable":
+    if not isinstance(m, dict) or type(m.get("schemaVersion")) is not int or m.get("schemaVersion") != 1 or m.get("productId") != PRODUCT or m.get("channel") != "stable":
         raise RuntimeError("Manifest schema, product, or channel is invalid.")
     if m.get("platform") != "windows" or m.get("architecture") != "x64" or m.get("packageFormat") != "zip":
         raise RuntimeError("Manifest platform or package format is invalid.")
-    if not re.fullmatch(r"\d+\.\d+\.\d+", str(m.get("version", ""))):
-        raise RuntimeError("Stable version is invalid.")
-    if not isinstance(m.get("releaseSequence"), int) or m["releaseSequence"] <= 0:
-        raise RuntimeError("Release sequence is invalid.")
+    expected_sequence = release_sequence_for_version(m.get("version", ""))
+    if type(m.get("releaseSequence")) is not int or m["releaseSequence"] != expected_sequence:
+        raise RuntimeError("Release sequence does not match the stable semantic version.")
     if not isinstance(m.get("packageSize"), int) or not (0 < m["packageSize"] <= MAX_PACKAGE):
         raise RuntimeError("Package size is invalid.")
     if not re.fullmatch(r"[a-f0-9]{64}", str(m.get("packageSha256", ""))):
         raise RuntimeError("Package SHA-256 is invalid.")
     if not re.fullmatch(r"\d+\.\d+\.\d+", str(m.get("minimumUpdaterVersion", ""))):
         raise RuntimeError("Minimum updater version is invalid.")
+    version = m["version"]
+    expected_url = PACKAGE_BASE + f"XboxHub-{version}-win-x64.zip"
     url = m.get("packageUrl", "")
-    if not isinstance(url, str) or not url.startswith(PACKAGE_BASE) or urllib.parse.urlparse(url).query or urllib.parse.urlparse(url).fragment:
+    parsed_url = urllib.parse.urlparse(url) if isinstance(url, str) else None
+    if (url != expected_url or parsed_url is None or parsed_url.scheme != "https"
+        or parsed_url.netloc != "updates.mahmoudaljuorany.store"
+        or parsed_url.query or parsed_url.fragment):
         raise RuntimeError("Package URL is outside the configured stable HTTPS feed.")
+    if not isinstance(m.get("title"), str) or not m["title"].strip() or len(m["title"]) > 200:
+        raise RuntimeError("Manifest title is invalid.")
+    try:
+        datetime.date.fromisoformat(m.get("date", ""))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Manifest date is invalid.") from exc
+    changes = m.get("changes")
+    if (not isinstance(changes, list) or not 1 <= len(changes) <= 20
+        or any(not isinstance(item, str) or not item.strip() or len(item) > 500 for item in changes)):
+        raise RuntimeError("Manifest changelog is invalid.")
 
 def verify_envelope(raw):
     if not raw or len(raw) > MAX_JSON:
@@ -170,23 +212,35 @@ def validate_candidate(release, metadata, github):
     version = str(metadata.get("version", ""))
     if not re.fullmatch(r"\d+\.\d+\.\d+", version) or metadata.get("packageFileName") != f"XboxHub-{version}-win-x64.zip":
         raise RuntimeError("Candidate version or ZIP name is invalid.")
-    if not isinstance(metadata.get("releaseSequence"), int) or metadata["releaseSequence"] <= 0:
-        raise RuntimeError("Candidate release sequence is invalid.")
+    expected_sequence = release_sequence_for_version(version)
+    if type(metadata.get("releaseSequence")) is not int or metadata["releaseSequence"] != expected_sequence:
+        raise RuntimeError("Candidate release sequence does not match its version.")
     if not isinstance(metadata.get("packageSize"), int) or not (0 < metadata["packageSize"] <= MAX_PACKAGE):
         raise RuntimeError("Candidate package size is invalid.")
     if not re.fullmatch(r"[a-f0-9]{64}", str(metadata.get("packageSha256", ""))):
         raise RuntimeError("Candidate package digest is invalid.")
     if not re.fullmatch(r"\d+\.\d+\.\d+", str(metadata.get("minimumUpdaterVersion", ""))):
         raise RuntimeError("Candidate minimum updater version is invalid.")
-    if not isinstance(metadata.get("changes"), list) or not (1 <= len(metadata["changes"]) <= 20):
+    if not isinstance(metadata.get("title"), str) or not metadata["title"].strip() or len(metadata["title"]) > 200:
+        raise RuntimeError("Candidate title is invalid.")
+    try:
+        datetime.date.fromisoformat(metadata.get("date", ""))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Candidate date is invalid.") from exc
+    changes = metadata.get("changes")
+    if (not isinstance(changes, list) or not 1 <= len(changes) <= 20
+        or any(not isinstance(item, str) or not item.strip() or len(item) > 500 for item in changes)):
         raise RuntimeError("Candidate changelog is invalid.")
     run_id, attempt = metadata.get("builderRunId"), metadata.get("builderRunAttempt")
-    if not isinstance(run_id, int) or not isinstance(attempt, int):
+    if type(run_id) is not int or type(attempt) is not int:
         raise RuntimeError("Candidate builder run identity is invalid.")
     run = github.build_run(run_id)
-    if (run.get("status") != "completed" or run.get("conclusion") != "success" or
-        run.get("head_branch") != "main" or run.get("workflow_id") != WORKFLOW_ID or
-        run.get("path") != WORKFLOW_PATH or run.get("run_attempt") != attempt):
+    if (run.get("status") != "completed" or run.get("conclusion") != "success"
+        or run.get("head_branch") != "main" or run.get("workflow_id") != WORKFLOW_ID
+        or run.get("path") != WORKFLOW_PATH or run.get("run_attempt") != attempt
+        or run.get("event") not in {"push", "schedule", "workflow_dispatch"}
+        or run.get("repository", {}).get("full_name") != REPO
+        or release.get("target_commitish") != run.get("head_sha")):
         raise RuntimeError("Candidate is not backed by a successful trusted main-branch build.")
 
 def get_metadata(release, github):
@@ -322,7 +376,7 @@ def main():
                         format="%(asctime)s %(levelname)s %(message)s")
     os.umask(0o027)
     try:
-        github, vault = GitHub(), Vault()
+        github = GitHub()
         directory = Path(os.environ.get("XHUB_RELEASE_DIRECTORY", "/var/www/xbox-hub-updates/stable"))
         directory.mkdir(parents=True, exist_ok=True)
         manifest = directory / "manifest.json"
@@ -330,13 +384,21 @@ def main():
         candidates = []
         for release in github.releases():
             metadata = get_metadata(release, github)
-            if metadata.get("channel") == "stable":
-                validate_candidate(release, metadata, github)
-                candidates.append((metadata["releaseSequence"], release, metadata))
+            if metadata.get("channel") != "stable":
+                continue
+            sequence = metadata.get("releaseSequence")
+            if type(sequence) is not int or sequence <= current:
+                continue
+            validate_candidate(release, metadata, github)
+            candidates.append((sequence, release, metadata))
         candidates.sort(key=lambda item: item[0])
-        if current == 0 and candidates and os.environ.get("XHUB_ALLOW_INITIAL_STABLE", "false").lower() not in {"1", "true", "yes"}:
+        if not candidates:
+            LOG.info("No new validated Stable candidates are available.")
+            return 0
+        if current == 0 and os.environ.get("XHUB_ALLOW_INITIAL_STABLE", "false").lower() not in {"1", "true", "yes"}:
             LOG.warning("Initial Stable publish is disabled. Candidate %s is ready for first-release acceptance.", candidates[-1][2]["version"])
             return 0
+        vault = Vault()
         for _, release, metadata in candidates:
             current = publish(release, metadata, github, vault, directory, current)
         return 0
