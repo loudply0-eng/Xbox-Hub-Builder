@@ -19,6 +19,7 @@ on:
       - main
     paths:
       - ".github/xbox-hub-build-trigger.txt"
+      - ".github/xbox-hub-pr13-validation-trigger.txt"
 
 permissions:
   contents: read
@@ -37,11 +38,40 @@ jobs:
       source_sha: ${{ steps.source.outputs.sha }}
       source_changed: ${{ steps.compare.outputs.changed }}
     steps:
+      - name: Check out public builder workflow repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Resolve trusted private source ref
+        id: source_ref
+        shell: bash
+        env:
+          REQUESTED_SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${REQUESTED_SOURCE_REF}" ]]; then
+            source_ref="${REQUESTED_SOURCE_REF}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" && -f ".github/xbox-hub-pr13-validation-trigger.txt" ]]; then
+            source_ref="$(tr -d '\r\n' < .github/xbox-hub-pr13-validation-trigger.txt)"
+          else
+            source_ref="main"
+          fi
+
+          if [[ ! "${source_ref}" =~ ^(main|feature/defer-updates-during-known-game-sessions|fix/prevent-failed-update-retry-loop|[0-9a-f]{40})$ ]]; then
+            echo "Refusing unapproved private source ref." >&2
+            exit 1
+          fi
+
+          echo "ref=${source_ref}" >> "${GITHUB_OUTPUT}"
+          echo "Selected approved private source ref for Windows validation."
+
       - name: Check out selected trusted private Xbox Hub source ref
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: loudply0-eng/Xbox-Hub-for-PC
-          ref: ${{ inputs.source_ref || 'main' }}
+          ref: ${{ steps.source_ref.outputs.ref }}
           ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
           path: private-source
           persist-credentials: false
