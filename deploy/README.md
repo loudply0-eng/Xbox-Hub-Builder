@@ -13,7 +13,7 @@ This directory contains the release publisher for the dedicated Oracle Linux upd
 - The app verifies the signed manifest, exact byte count, and SHA-256 before its startup updater installs a new release.
 The agent also keeps a root-owned-by-service, mode-0600 publication ledger at `/var/lib/xboxhub-release-agent/state.json`. The last successful release identity is checked independently of the public manifest, so deleting or losing `manifest.json` cannot silently reset the publisher's stable version floor. A malformed state file fails closed and requires operator recovery; it is not silently overwritten.
 
-**Publication is disabled by default.** Keep XBOXHUB_RELEASE_AUTO_PUBLISH_ENABLED=false until the exact first candidate has been manually accepted on Windows and the OCI key self-test succeeds.
+**Publication by this Oracle agent is disabled by default.** A stable 0.1.10 feed is already present and has passed the external end-to-end signature/package verification in [health-check run 45542965810](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45542965810). Keep XBOXHUB_RELEASE_AUTO_PUBLISH_ENABLED=false until OCI is configured, the agent self-test passes, and the exact 0.1.11 candidate has been manually accepted on Windows. The next controlled release must be newer than the currently served 0.1.10.
 
 ## 1. Create the two Vault HSM keys
 
@@ -132,7 +132,7 @@ sudo journalctl -u xboxhub-release-agent-check.service -n 100 --no-pager
 sudo systemctl status xboxhub-release-agent.timer
 ~~~
 
-## 4. Accept the first release, then enable automatic publication
+## 4. Accept the next release, then enable automatic publication
 
 Keep XBOXHUB_RELEASE_AUTO_PUBLISH_ENABLED=false while manually decrypting and testing the exact first candidate on Windows. Confirm the app launches, the user library/settings are preserved, and the separate updater can replace/rollback files in a clean test profile.
 
