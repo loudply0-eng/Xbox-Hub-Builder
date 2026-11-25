@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -159,13 +160,16 @@ def http_json(url: str) -> Any:
 
 
 def http_download(url: str, max_bytes: int) -> bytes:
+    parsed_url = urllib.parse.urlsplit(url)
+    if parsed_url.scheme != "https" or parsed_url.hostname not in ("api.github.com", "github.com"):
+        fail("Artifact download URL must originate from the public GitHub host.")
     request = urllib.request.Request(url, headers={"User-Agent": "XboxHub-OCI-Release-Agent/1.0"})
     chunks = bytearray()
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with urllib.request.urlopen(request, timeout=300) as response:
         if response.status != 200:
             fail("GitHub artifact download did not return HTTP 200.")
         final_url = urllib.parse.urlsplit(response.geturl())
-        if final_url.scheme != "https" or not (final_url.hostname in ("github.com", "api.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com") or final_url.hostname.endswith(".blob.core.windows.net")):
+        if final_url.scheme != "https" or not (final_url.hostname in ("github.com", "api.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com") or (final_url.hostname or "").endswith(".blob.core.windows.net")):
             fail("Artifact download redirected to an unexpected host.")
         while True:
             part = response.read(1024 * 1024)
@@ -175,9 +179,6 @@ def http_download(url: str, max_bytes: int) -> bytes:
             if len(chunks) > max_bytes:
                 fail("GitHub artifact exceeded the configured download limit.")
     return bytes(chunks)
-
-
-METADATA_ARTIFACT_NAME = "xboxhub-release-metadata"
 
 def extract_one_artifact_file(archive: bytes, expected_name: str, max_file_bytes: int) -> bytes:
     try:
@@ -195,7 +196,16 @@ def extract_one_artifact_file(archive: bytes, expected_name: str, max_file_bytes
     return data
 
 
-def latest_candidate_artifact() -> tuple[dict[str, Any], dict[str, Any], str] | None:
+def verify_artifact_archive_digest(archive: bytes, expected_digest: Any, label: str) -> None:
+    if not isinstance(expected_digest, str) or not expected_digest.startswith("sha256:"):
+        fail(label + " is missing its GitHub SHA-256 archive digest.")
+    expected = expected_digest.removeprefix("sha256:").lower()
+    actual = hashlib.sha256(archive).hexdigest()
+    if not HEX_SHA_RE.fullmatch(expected) or not hmac.compare_digest(actual, expected):
+        fail(label + " archive digest does not match GitHub's artifact metadata.")
+
+
+def latest_candidate_artifact() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
     runs_url = (
         f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_ID}/runs"
         "?branch=main&status=success&per_page=10"
@@ -223,12 +233,17 @@ def latest_candidate_artifact() -> tuple[dict[str, Any], dict[str, Any], str] | 
         package_url = package_artifact.get("archive_download_url")
         if not metadata_url or not package_url:
             continue
+        if metadata_artifact.get("size_in_bytes", 0) > 256 * 1024:
+            fail("Release metadata artifact exceeds its configured size limit.")
+        if package_artifact.get("size_in_bytes", 0) > MAX_ARTIFACT_BYTES:
+            fail("Encrypted package artifact exceeds its configured size limit.")
         try:
             metadata_archive = http_download(metadata_url, 256 * 1024)
         except urllib.error.HTTPError as exc:
-            if exc.code == 404:
+            if exc.code in (404, 410):
                 continue
             raise
+        verify_artifact_archive_digest(metadata_archive, metadata_artifact.get("digest"), "Release metadata")
         metadata_bytes = extract_one_artifact_file(
             metadata_archive, "xboxhub-release-metadata.json", 64 * 1024
         )
@@ -258,17 +273,26 @@ def latest_candidate_artifact() -> tuple[dict[str, Any], dict[str, Any], str] | 
             fail("Successful source-build marker does not match release metadata.")
         if metadata.get("releaseSequence") != release_sequence(version):
             fail("Release metadata sequence does not match its semantic version.")
-        return run, metadata, package_url
+        return run, metadata, {
+            "url": package_url,
+            "digest": package_artifact.get("digest"),
+            "size": package_artifact.get("size_in_bytes"),
+        }
     return None
 
 
-def download_encrypted_package(package_artifact_url: str, metadata: dict[str, Any]) -> bytes:
-    archive = http_download(package_artifact_url, MAX_ARTIFACT_BYTES)
+def download_encrypted_package(package_artifact: dict[str, Any], metadata: dict[str, Any]) -> bytes:
+    package_url = package_artifact.get("url")
+    if not isinstance(package_url, str):
+        fail("Encrypted package artifact URL is missing.")
+    archive = http_download(package_url, MAX_ARTIFACT_BYTES)
+    verify_artifact_archive_digest(archive, package_artifact.get("digest"), "Encrypted package")
     filename = metadata.get("packageFileName")
     if not isinstance(filename, str) or not PACKAGE_NAME_RE.fullmatch(filename):
         fail("Release metadata contains an invalid encrypted package filename.")
-    container = extract_one_artifact_file(archive, filename.removesuffix(".zip") + ".xhubenc", MAX_CONTAINER_BYTES)
-    return container
+    return extract_one_artifact_file(
+        archive, filename.removesuffix(".zip") + ".xhubenc", MAX_CONTAINER_BYTES
+    )
 
 def parse_container(container: bytes, expected_key_id: str) -> tuple[dict[str, Any], bytes]:
     if not 12 <= len(container) <= MAX_CONTAINER_BYTES:
@@ -346,6 +370,44 @@ def release_sequence(version: str) -> int:
     if max(major, minor, patch) >= 1_000_000:
         fail("Stable version component exceeds the release-sequence range.")
     return major * 1_000_000_000_000 + minor * 1_000_000 + patch
+
+
+def validate_candidate_metadata(metadata: dict[str, Any]) -> None:
+    if metadata.get("schemaVersion") != 1 or metadata.get("productId") != "xbox-hub-for-pc":
+        fail("Release metadata schema or product ID is invalid.")
+    if metadata.get("channel") != "stable" or metadata.get("platform") != "windows" or metadata.get("architecture") != "x64":
+        fail("Only stable Windows x64 candidates may be published.")
+    version = metadata.get("version")
+    if not isinstance(version, str) or not STABLE_VERSION_RE.fullmatch(version):
+        fail("Stable release version is invalid.")
+    if type(metadata.get("releaseSequence")) is not int or metadata["releaseSequence"] != release_sequence(version):
+        fail("Release sequence does not match the stable semantic version.")
+    expected_filename = f"XboxHub-{version}-win-x64.zip"
+    if metadata.get("packageFileName") != expected_filename:
+        fail("Release metadata package filename does not match its stable version.")
+    if type(metadata.get("packageSize")) is not int or not 0 < metadata["packageSize"] <= MAX_PACKAGE_BYTES:
+        fail("Release metadata package size is invalid.")
+    if not isinstance(metadata.get("packageSha256"), str) or not HEX_SHA_RE.fullmatch(metadata["packageSha256"]):
+        fail("Release metadata package SHA-256 is invalid.")
+    if metadata.get("minimumUpdaterVersion") != "0.1.9":
+        fail("Minimum updater version is not the configured stable baseline.")
+    if not isinstance(metadata.get("sourceSha"), str) or not SOURCE_SHA_RE.fullmatch(metadata["sourceSha"]):
+        fail("Release metadata source SHA is invalid.")
+    if type(metadata.get("builderRunId")) is not int or metadata["builderRunId"] <= 0:
+        fail("Release metadata builder run ID is invalid.")
+    if type(metadata.get("builderRunAttempt")) is not int or metadata["builderRunAttempt"] <= 0:
+        fail("Release metadata builder run attempt is invalid.")
+    if not isinstance(metadata.get("title"), str) or not 1 <= len(metadata["title"].strip()) <= 120:
+        fail("Release title is invalid.")
+    changes = metadata.get("changes")
+    if not isinstance(changes, list) or not 1 <= len(changes) <= 20:
+        fail("Release notes must contain 1 to 20 entries.")
+    if any(not isinstance(change, str) or not change.strip() or len(change) > 500 for change in changes):
+        fail("A release-note entry is invalid.")
+    try:
+        date.fromisoformat(metadata.get("date"))
+    except (TypeError, ValueError):
+        fail("Release date is invalid.")
 
 
 def validate_metadata(metadata: dict[str, Any], header: dict[str, Any], package: bytes) -> dict[str, Any]:
@@ -559,7 +621,8 @@ def run_once(config: Config, vault: OciVaultCrypto | None = None) -> str:
     candidate = latest_candidate_artifact()
     if candidate is None:
         return "no-candidate-available"
-    run, metadata, package_artifact_url = candidate
+    run, metadata, package_artifact = candidate
+    validate_candidate_metadata(metadata)
     candidate_version = metadata["version"]
     candidate_sequence = metadata["releaseSequence"]
     manifest_path = config.stable_dir / "manifest.json"
@@ -576,7 +639,7 @@ def run_once(config: Config, vault: OciVaultCrypto | None = None) -> str:
             return "already-current"
     if vault is None:
         fail("OCI Vault client is required for a new stable release.")
-    encrypted = download_encrypted_package(package_artifact_url, metadata)
+    encrypted = download_encrypted_package(package_artifact, metadata)
     header, package = decrypt_container(encrypted, vault.unwrap_aes_key)
     payload = validate_metadata(metadata, header, package)
     envelope = make_signed_envelope(payload, vault.sign)
