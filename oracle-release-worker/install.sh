@@ -76,9 +76,9 @@ for variable in XHUB_KMS_CRYPTO_ENDPOINT XHUB_PACKAGE_KEY_OCID XHUB_PACKAGE_KEY_
 done
 
 info "Preparing existing HTTPS update directory"
-install -d -o opc -g nginx -m 0750 "$RELEASE_DIR"
+install -d -o opc -g nginx -m 2750 "$RELEASE_DIR"
 chown opc:nginx "$RELEASE_DIR"
-chmod 0750 "$RELEASE_DIR"
+chmod 2750 "$RELEASE_DIR"
 
 info "Installing hardened systemd service and 15-minute timer"
 install -o root -g root -m 0644 "$tmp/xboxhub-release-worker.service" /etc/systemd/system/xboxhub-release-worker.service
