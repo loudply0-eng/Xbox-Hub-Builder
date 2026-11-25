@@ -35,6 +35,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 GITHUB_REPO = "loudply0-eng/Xbox-Hub-Builder"
 WORKFLOW_ID = 428075352
 ARTIFACT_NAME = "xboxhub-encrypted-offline-package"
+METADATA_ARTIFACT_NAME = "xboxhub-release-metadata"
 PACKAGE_KEY_ID = "xboxhub-package-rsa3072-b845262d34ea685b"
 PACKAGE_PUBLIC_KEY_SPKI_B64 = "MIIBojANBgkqhkiG9w0BAQEFAAOCAYEAnRC/9ASAHsBTtsqiyW1VNbhtiU8pN7a4r2gFEEkibvwctEYfdKpBTs9st1Og5JcNBrDS6/cl7gAj/d54ahDxKV0ApX66Io3EKkwV0zhQsYxjN14P8Gjpzf7ZB701da8mES1Go1GdUcdJE2Iz2qo/ANZ2ZEdJQuqzRuCbP8ommXcawNk8EU46kWcE4EYi/hDrYspWybxXKtRIxlxfdG1aJ7eucUST7NvSuvyJ762X0RCVstFci5iR/Bpk75YHXt0H9zOtmuBYGg8kajhj4FdgEbFuLh+c9GAlWlxMY6ZOQCU2bKHUiN/baLn6ytICR/XgGHojhLhMC5xtiIP/gwTY4A9Q8NIFrwC0NmBYzWpTKtULY/tUutt2aIJzsT32q9iuX5JuTSrKFe12rpIwhMWqbnFJxSiiKAmM/dqFMA6Wz/XVFFCxT14f6kzcD4ufsyWJsvnairtcikACwYEVApA5cympzb99rk1r1Y0dU+oYvmDePjRUS/AfX0LUWKexI/oZAgMBAAE="
 RELEASE_KEY_ID = "xboxhub-rsa3072-9986345089cc1513"
