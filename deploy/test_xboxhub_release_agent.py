@@ -185,6 +185,61 @@ class ReleaseAgentTests(unittest.TestCase):
                 agent.atomic_write_new(target, b"second")
             self.assertEqual(target.read_bytes(), b"first")
 
+    def test_release_agent_does_not_poll_or_publish_when_disabled(self):
+        config = agent.Config(
+            crypto_endpoint="https://kms.example.invalid",
+            package_key_ocid="package-key",
+            package_key_version_ocid="package-version",
+            signing_key_ocid="signing-key",
+            signing_key_version_ocid="signing-version",
+            stable_dir=Path("/tmp/xboxhub-test-stable"),
+            state_file=Path("/tmp/xboxhub-test-state/state.json"),
+            auto_publish_enabled=False,
+        )
+        with patch.object(agent, "latest_candidate_artifact", side_effect=AssertionError("poll should not run")):
+            self.assertEqual(agent.run_once(config, None), "publishing-disabled")
+
+    def test_candidate_already_current_skips_large_encrypted_artifact_download(self):
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+        public_key = private_key.public_key()
+        payload = {
+            "schemaVersion": 1,
+            "productId": "xbox-hub-for-pc",
+            "channel": "stable",
+            "version": "0.1.11",
+            "releaseSequence": 1_000_011,
+            "packageSha256": "a" * 64,
+        }
+        payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        signature = private_key.sign(payload_bytes, padding.PKCS1v15(), hashes.SHA256())
+        envelope = {
+            "keyId": "xboxhub-rsa3072-test-key",
+            "payload": base64.b64encode(payload_bytes).decode("ascii"),
+            "signature": base64.b64encode(signature).decode("ascii"),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "manifest.json"
+            manifest_path.write_text(json.dumps(envelope), encoding="utf-8")
+            config = agent.Config(
+                crypto_endpoint="https://kms.example.invalid",
+                package_key_ocid="package-key",
+                package_key_version_ocid="package-version",
+                signing_key_ocid="signing-key",
+                signing_key_version_ocid="signing-version",
+                stable_dir=Path(directory),
+                state_file=Path(directory) / "state.json",
+                auto_publish_enabled=True,
+            )
+            metadata = {
+                "version": "0.1.11",
+                "releaseSequence": 1_000_011,
+                "packageSha256": "a" * 64,
+            }
+            with patch.object(agent, "latest_candidate_artifact", return_value=({}, metadata, "https://github.com/package-artifact")):
+                with patch.object(agent, "load_trusted_public_key", return_value=public_key):
+                    with patch.object(agent, "download_encrypted_package", side_effect=AssertionError("large artifact must not be downloaded")):
+                        self.assertEqual(agent.run_once(config, None), "already-current")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
