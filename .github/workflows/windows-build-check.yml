@@ -588,7 +588,7 @@ jobs:
             --dir "$destination"
           echo "Downloaded the encrypted package and non-secret release metadata."
 
-      - name: Validate candidate metadata and publish an immutable handoff release
+      - name: Validate candidate metadata and publish a persistent handoff release
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ needs.detect-private-source-revision.outputs.source_sha }}
@@ -656,7 +656,7 @@ jobs:
             jq -e --arg asset "$expected_asset" --argjson bytes "$package_bytes" '
               [.assets[] | select(.name == $asset and .size == $bytes)] | length == 1
             ' "$existing" >/dev/null
-            echo "The immutable encrypted handoff release already exists and matches this candidate."
+            echo "The encrypted handoff release already exists and matches this candidate."
             exit 0
           fi
 
