@@ -535,7 +535,7 @@ jobs:
           name: xboxhub-encrypted-offline-package
           path: ${{ steps.encrypted_package.outputs.encrypted_path }}
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 90
           compression-level: 0
 
       - name: Upload non-secret release metadata sidecar
@@ -545,7 +545,7 @@ jobs:
           name: xboxhub-release-metadata
           path: ${{ steps.release_metadata.outputs.metadata_path }}
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 90
           compression-level: 0
 
       - name: Test updater replacement and rollback transactions
