@@ -319,7 +319,7 @@ def latest_persistent_release_candidate() -> tuple[dict[str, Any], dict[str, Any
         run_id = metadata.get("builderRunId")
         if type(run_id) is not int or run_id <= 0:
             fail("Persistent release metadata builder run ID is invalid.")
-        run = http_json(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}", 256 * 1024)
+        run = http_json(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}")
         verify_source_build_and_marker(run, metadata)
         if release_sequence(version) != metadata.get("releaseSequence"):
             fail("Persistent release sequence does not match its version.")
