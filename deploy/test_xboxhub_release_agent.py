@@ -240,6 +240,75 @@ class ReleaseAgentTests(unittest.TestCase):
                     with patch.object(agent, "download_encrypted_package", side_effect=AssertionError("large artifact must not be downloaded")):
                         self.assertEqual(agent.run_once(config, None), "already-current")
 
+    def test_artifact_extraction_requires_exactly_one_expected_file(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("xboxhub-release-metadata.json", b"{\"channel\":\"stable\"}")
+        extracted = agent.extract_one_artifact_file(
+            buffer.getvalue(), "xboxhub-release-metadata.json", 64 * 1024
+        )
+        self.assertEqual(extracted, b"{\"channel\":\"stable\"}")
+
+        bad = io.BytesIO()
+        with zipfile.ZipFile(bad, "w") as archive:
+            archive.writestr("xboxhub-release-metadata.json", b"{}")
+            archive.writestr("unexpected.txt", b"unexpected")
+        with self.assertRaisesRegex(RuntimeError, "exactly the expected file"):
+            agent.extract_one_artifact_file(
+                bad.getvalue(), "xboxhub-release-metadata.json", 64 * 1024
+            )
+
+    def test_candidate_poll_reads_metadata_sidecar_without_downloading_package(self):
+        source_sha = "a" * 40
+        run = {
+            "id": 123,
+            "run_attempt": 1,
+            "head_branch": "main",
+            "conclusion": "success",
+        }
+        metadata = {
+            "channel": "stable",
+            "version": "0.1.11",
+            "releaseSequence": 1_000_011,
+            "builderRunId": 123,
+            "builderRunAttempt": 1,
+            "sourceSha": source_sha,
+        }
+        archive_buffer = io.BytesIO()
+        with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("xboxhub-release-metadata.json", json.dumps(metadata))
+        metadata_archive = archive_buffer.getvalue()
+        package_url = "https://github.com/package-artifact"
+        calls = []
+
+        def fake_json(url):
+            if "/actions/workflows/" in url:
+                return {"workflow_runs": [run]}
+            if "/actions/runs/123/artifacts" in url:
+                return {"artifacts": [
+                    {"name": "xboxhub-release-metadata", "expired": False, "archive_download_url": "https://github.com/meta-artifact"},
+                    {"name": "xboxhub-encrypted-offline-package", "expired": False, "archive_download_url": package_url},
+                ]}
+            if "/git/ref/tags/xboxhub-source-" in url:
+                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": source_sha}}
+            raise AssertionError("Unexpected GitHub API URL: " + url)
+
+        def fake_download(url, max_bytes):
+            calls.append(url)
+            if url == "https://github.com/meta-artifact":
+                return metadata_archive
+            raise AssertionError("Encrypted package must not be downloaded during discovery.")
+
+        with patch.object(agent, "http_json", side_effect=fake_json):
+            with patch.object(agent, "http_download", side_effect=fake_download):
+                found = agent.latest_candidate_artifact()
+
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], run)
+        self.assertEqual(found[1], metadata)
+        self.assertEqual(found[2], package_url)
+        self.assertEqual(calls, ["https://github.com/meta-artifact"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
