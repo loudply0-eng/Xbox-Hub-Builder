@@ -14,3 +14,5 @@ Automation validation: build after 0.1.11 implementation and release-readiness d
 
 
 2026-11-25 handoff fix: retrieve the encrypted package and release metadata from their separate Actions artifact names before prerelease publication.
+
+2026-11-25 release-agent validation: verify separate encrypted-package and non-secret release-metadata artifacts, exact archive digests, and 90-day retention; no stable publication enabled.
