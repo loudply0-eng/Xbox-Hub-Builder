@@ -149,7 +149,7 @@ sudo systemctl start xboxhub-release-agent.service
 sudo journalctl -u xboxhub-release-agent.service -n 100 --no-pager
 ~~~
 
-After a successful first publication, the 10-minute systemd timer automatically checks for later stable build candidates. A newer stable version is accepted only after:
+After the first successful publication, open the public builder repository Settings → Secrets and variables → Actions → Variables and create or set `XBOXHUB_REQUIRE_STABLE_FEED` to `true`. This switches the external weekly health check from allowing the pre-release HTTP 404 to requiring HTTP 200 for `/stable/manifest.json`. The variable is not a secret and does not grant permissions. The 10-minute systemd timer automatically checks for later stable build candidates. A newer stable version is accepted only after:
 
 - the public builder run completed successfully;
 - its permanent candidate prerelease (or fallback Actions artifacts) has GitHub SHA-256 digests matching the downloaded asset bytes;
