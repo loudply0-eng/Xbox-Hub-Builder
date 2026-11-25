@@ -19,6 +19,8 @@ concurrency:
 
 jobs:
   detect-private-source-revision:
+    # The private-source deploy key is only used by trusted main-branch runs.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -492,7 +494,7 @@ jobs:
     needs:
       - detect-private-source-revision
       - build-private-windows-app
-    if: success()
+    if: github.ref == 'refs/heads/main' && success()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
