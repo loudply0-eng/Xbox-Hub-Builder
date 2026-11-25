@@ -29,3 +29,5 @@ jobs:
           python3 -m py_compile xboxhub_release_worker.py
           python3 -m unittest -v
           bash -n install.sh
+          grep -Fq 'install -d -o opc -g nginx -m 2750 "$RELEASE_DIR"' install.sh
+          grep -Fq 'chmod 2750 "$RELEASE_DIR"' install.sh
