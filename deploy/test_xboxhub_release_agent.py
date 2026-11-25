@@ -222,10 +222,11 @@ class ReleaseAgentTests(unittest.TestCase):
             ),
         )
         from cryptography.hazmat.primitives.keywrap import aes_key_unwrap_with_padding
+        # RFC 5649 AES-KW-PAD uses its standard default IV in cryptography,
+        # which is the OCI RSA_OAEP_AES_SHA256 import-envelope IV.
         unwrapped_pkcs8 = aes_key_unwrap_with_padding(
             aes_key,
             wrapped_pkcs8,
-            iv=oci_import.ORACLE_AES_WRAP_IV,
         )
         restored_private = serialization.load_der_private_key(unwrapped_pkcs8, password=None)
         restored_public_der = restored_private.public_key().public_bytes(
@@ -280,9 +281,23 @@ class ReleaseAgentTests(unittest.TestCase):
                 auto_publish_enabled=True,
             )
             metadata = {
+                "schemaVersion": 1,
+                "productId": "xbox-hub-for-pc",
+                "channel": "stable",
                 "version": "0.1.11",
                 "releaseSequence": 1_000_011,
+                "platform": "windows",
+                "architecture": "x64",
+                "packageFileName": "XboxHub-0.1.11-win-x64.zip",
+                "packageSize": 12_345,
                 "packageSha256": "a" * 64,
+                "minimumUpdaterVersion": "0.1.9",
+                "title": "Automatic startup updates",
+                "date": "2026-11-25",
+                "changes": ["Installs verified updates at startup."],
+                "sourceSha": "a" * 40,
+                "builderRunId": 123,
+                "builderRunAttempt": 1,
             }
             with patch.object(agent, "latest_candidate_artifact", return_value=({}, metadata, {"url": "https://github.com/package-artifact", "digest": "sha256:" + ("b" * 64), "size": 1000})):
                 with patch.object(agent, "load_trusted_public_key", return_value=public_key):
