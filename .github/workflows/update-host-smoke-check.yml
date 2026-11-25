@@ -22,6 +22,10 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      # Set this repository Actions variable to "true" after the first stable
+      # publication. Before that deliberate activation, HTTP 404 is expected.
+      XBOXHUB_REQUIRE_STABLE_FEED: ${{ vars.XBOXHUB_REQUIRE_STABLE_FEED }}
 
     steps:
       - name: Verify public DNS points to the dedicated Oracle host
@@ -63,7 +67,6 @@ jobs:
             exit 1
           fi
           echo "PASS: HTTP redirects to the same HTTPS hostname."
-          echo "PASS: HTTP redirects to the same HTTPS hostname."
 
       - name: Verify public HTTPS certificate and stable manifest endpoint
         shell: bash
@@ -84,6 +87,10 @@ jobs:
             exit 1
           fi
           if [[ "$status" == "404" ]]; then
+            if [[ "${XBOXHUB_REQUIRE_STABLE_FEED:-false}" == "true" ]]; then
+              echo "ERROR: Stable feed is required, but the manifest returned HTTP 404."
+              exit 1
+            fi
             echo "INFO: TLS is trusted; stable manifest is not published yet (expected before first release)."
           else
             echo "PASS: Stable manifest endpoint is responding over trusted HTTPS."
