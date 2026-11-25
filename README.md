@@ -23,9 +23,9 @@ Public repository for reviewed build automation only. The authoritative applicat
 
 ## Private-source build automation
 
-The source checkout uses the read-only SOURCE_REPO_DEPLOY_KEY Actions secret and sets persist-credentials=false. The private source is checked out only on the trusted main branch.
+The source checkout uses the read-only SOURCE_REPO_DEPLOY_KEY Actions secret and sets persist-credentials=false. The workflow definition and secret-bearing job run only from the trusted Builder main branch; private source refs are selected from a fixed allowlist. Pull-request branches cannot supply or execute the Builder workflow definition.
 
-The public builder polls private Xbox Hub main every 15 minutes and compares it with immutable xboxhub-source-<sha> success tags. A Windows runner starts only for a new private-source revision (or an explicit manual/marker trigger), checks out the exact detected SHA, validates the app and updater, and records a tag only after all build and handoff steps succeed. No Windows runner is used when the scheduled poll finds no new source revision.
+The public builder polls private Xbox Hub main every 15 minutes and compares it with immutable xboxhub-source-<sha> success tags. A Windows runner starts only for a new private-source revision (or an explicit manual trigger), checks out the exact detected SHA, validates the app and updater, and records a tag only after all build and handoff steps succeed. Scheduled runs always inspect private-source main. For controlled PR validation, workflow_dispatch offers the allowlisted refs main, feature/defer-updates-during-known-game-sessions, and fix/prevent-failed-update-retry-loop; the workflow resolves the selected ref to an exact commit SHA before building. A manually selected branch build creates only the encrypted prerelease handoff and does not publish the stable feed. No Windows runner is used when the scheduled poll finds no new private-source revision.
 
 Every successful candidate build produces two separate short-lived Actions artifacts:
 1. xboxhub-encrypted-offline-package — the encrypted .xhubenc app package only.
