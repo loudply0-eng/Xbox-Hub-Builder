@@ -341,6 +341,7 @@ class ReleaseAgentTests(unittest.TestCase):
             "status": "completed",
             "workflow_id": agent.WORKFLOW_ID,
             "path": ".github/workflows/windows-build-check.yml",
+            "head_sha": "d" * 40,
         }
         metadata = {
             "schemaVersion": 1,
@@ -384,7 +385,7 @@ class ReleaseAgentTests(unittest.TestCase):
             if url.endswith("/actions/runs/234"):
                 return run
             if "/git/ref/tags/xboxhub-source-" in url:
-                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": source_sha}}
+                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": run["head_sha"]}}
             raise AssertionError("Unexpected GitHub API URL: " + url)
 
         def fake_download(url, max_bytes):
@@ -428,6 +429,7 @@ class ReleaseAgentTests(unittest.TestCase):
             "status": "completed",
             "workflow_id": agent.WORKFLOW_ID,
             "path": ".github/workflows/windows-build-check.yml",
+            "head_sha": "e" * 40,
         }
         metadata = {
             "channel": "stable",
@@ -455,7 +457,7 @@ class ReleaseAgentTests(unittest.TestCase):
                     {"name": "xboxhub-encrypted-offline-package", "expired": False, "archive_download_url": package_url, "size_in_bytes": 1000, "digest": "sha256:" + ("b" * 64)},
                 ]}
             if "/git/ref/tags/xboxhub-source-" in url:
-                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": source_sha}}
+                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": run["head_sha"]}}
             raise AssertionError("Unexpected GitHub API URL: " + url)
 
         def fake_download(url, max_bytes):
