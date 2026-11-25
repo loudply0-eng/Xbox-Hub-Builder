@@ -238,7 +238,101 @@ def verify_artifact_archive_digest(archive: bytes, expected_digest: Any, label: 
         fail(label + " archive digest does not match GitHub's artifact metadata.")
 
 
-def latest_candidate_artifact() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
+def verify_source_build_and_marker(run: dict[str, Any], metadata: dict[str, Any]) -> None:
+    run_id = run.get("id")
+    if not isinstance(run_id, int) or metadata.get("builderRunId") != run_id:
+        fail("Release metadata run ID does not match its GitHub Actions run.")
+    if metadata.get("builderRunAttempt") != run.get("run_attempt", 1):
+        fail("Release metadata run attempt does not match its GitHub Actions run.")
+    if (run.get("status") != "completed" or run.get("conclusion") != "success" or
+            run.get("head_branch") != "main" or run.get("workflow_id") != WORKFLOW_ID or
+            run.get("path") != ".github/workflows/windows-build-check.yml"):
+        fail("Candidate is not backed by a successful trusted main-branch Windows build.")
+    source_sha = metadata.get("sourceSha", "")
+    if not isinstance(source_sha, str) or not SOURCE_SHA_RE.fullmatch(source_sha):
+        fail("Release metadata contains an invalid source revision.")
+    tag_url = f"https://api.github.com/repos/{GITHUB_REPO}/git/ref/tags/xboxhub-source-{source_sha}"
+    try:
+        marker = http_json(tag_url)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise RuntimeError("The candidate source has no successful-build marker yet.") from exc
+        raise
+    marker_object = marker.get("object", {})
+    if (marker.get("ref") != f"refs/tags/xboxhub-source-{source_sha}" or
+            marker_object.get("sha") != source_sha):
+        fail("Successful source-build marker does not match release metadata.")
+    if metadata.get("releaseSequence") != release_sequence(metadata.get("version", "")):
+        fail("Release metadata sequence does not match its semantic version.")
+
+
+def latest_persistent_release_candidate() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=50"
+    releases = http_json(url)
+    for release in releases:
+        if not isinstance(release, dict) or release.get("draft") is not False or release.get("prerelease") is not True:
+            continue
+        tag_name = release.get("tag_name", "")
+        match = re.fullmatch(r"xboxhub-candidate-([0-9a-f]{40})", str(tag_name))
+        if not match:
+            continue
+        source_sha = match.group(1)
+        assets = release.get("assets", [])
+        if not isinstance(assets, list):
+            fail("Persistent candidate release asset list is invalid.")
+        asset_map = {a.get("name"): a for a in assets if isinstance(a, dict)}
+        metadata_asset = asset_map.get("xboxhub-release-metadata.json")
+        if not metadata_asset:
+            continue
+        metadata_name = "xboxhub-release-metadata.json"
+        if type(metadata_asset.get("size")) is not int or not 0 < metadata_asset["size"] <= 64 * 1024:
+            fail("Persistent release metadata asset has an invalid size.")
+        metadata_url = metadata_asset.get("browser_download_url")
+        if not isinstance(metadata_url, str):
+            fail("Persistent release metadata asset URL is missing.")
+        try:
+            metadata_bytes = http_download(metadata_url, 64 * 1024)
+        except urllib.error.HTTPError as exc:
+            if exc.code in (404, 410):
+                continue
+            raise
+        verify_artifact_archive_digest(metadata_bytes, metadata_asset.get("digest"), "Persistent release metadata")
+        if len(metadata_bytes) != metadata_asset["size"]:
+            fail("Persistent release metadata byte count differs from GitHub asset metadata.")
+        metadata = json_loads_strict(metadata_bytes)
+        if not isinstance(metadata, dict) or metadata.get("channel") != "stable":
+            continue
+        version = metadata.get("version")
+        if not isinstance(version, str) or not STABLE_VERSION_RE.fullmatch(version):
+            continue
+        if metadata.get("sourceSha") != source_sha:
+            fail("Candidate release tag does not match the source SHA in its metadata.")
+        package_name = f"XboxHub-{version}-win-x64.xhubenc"
+        package_asset = asset_map.get(package_name)
+        if not package_asset or len(asset_map) != 2:
+            fail("Persistent candidate release must contain exactly the encrypted package and metadata sidecar.")
+        if type(package_asset.get("size")) is not int or not 0 < package_asset["size"] <= MAX_CONTAINER_BYTES:
+            fail("Persistent encrypted package asset has an invalid size.")
+        package_url = package_asset.get("browser_download_url")
+        if not isinstance(package_url, str):
+            fail("Persistent encrypted package asset URL is missing.")
+        run_id = metadata.get("builderRunId")
+        if type(run_id) is not int or run_id <= 0:
+            fail("Persistent release metadata builder run ID is invalid.")
+        run = http_json(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}", 256 * 1024)
+        verify_source_build_and_marker(run, metadata)
+        if release_sequence(version) != metadata.get("releaseSequence"):
+            fail("Persistent release sequence does not match its version.")
+        return run, metadata, {
+            "url": package_url,
+            "digest": package_asset.get("digest"),
+            "size": package_asset["size"],
+            "kind": "release-asset",
+        }
+    return None
+
+
+def latest_actions_artifact_candidate() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
     runs_url = (
         f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_ID}/runs"
         "?branch=main&status=success&per_page=10"
@@ -277,55 +371,48 @@ def latest_candidate_artifact() -> tuple[dict[str, Any], dict[str, Any], dict[st
                 continue
             raise
         verify_artifact_archive_digest(metadata_archive, metadata_artifact.get("digest"), "Release metadata")
-        metadata_bytes = extract_one_artifact_file(
-            metadata_archive, "xboxhub-release-metadata.json", 64 * 1024
-        )
+        metadata_bytes = extract_one_artifact_file(metadata_archive, "xboxhub-release-metadata.json", 64 * 1024)
         metadata = json_loads_strict(metadata_bytes)
         if not isinstance(metadata, dict) or metadata.get("channel") != "stable":
             continue
         version = metadata.get("version")
         if not isinstance(version, str) or not STABLE_VERSION_RE.fullmatch(version):
             continue
-        if metadata.get("builderRunId") != run_id:
-            fail("Release metadata run ID does not match its GitHub Actions run.")
-        if metadata.get("builderRunAttempt") != run.get("run_attempt", 1):
-            fail("Release metadata run attempt does not match its GitHub Actions run.")
-        source_sha = metadata.get("sourceSha", "")
-        if not isinstance(source_sha, str) or not SOURCE_SHA_RE.fullmatch(source_sha):
-            fail("Release metadata contains an invalid source revision.")
-        tag_url = f"https://api.github.com/repos/{GITHUB_REPO}/git/ref/tags/xboxhub-source-{source_sha}"
-        try:
-            marker = http_json(tag_url)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                continue
-            raise
-        marker_object = marker.get("object", {})
-        if (marker.get("ref") != f"refs/tags/xboxhub-source-{source_sha}" or
-                marker_object.get("sha") != source_sha):
-            fail("Successful source-build marker does not match release metadata.")
-        if metadata.get("releaseSequence") != release_sequence(version):
-            fail("Release metadata sequence does not match its semantic version.")
+        verify_source_build_and_marker(run, metadata)
         return run, metadata, {
             "url": package_url,
             "digest": package_artifact.get("digest"),
             "size": package_artifact.get("size_in_bytes"),
+            "kind": "actions-artifact",
         }
     return None
+
+
+def latest_candidate_artifact() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
+    # Permanent prerelease assets are the primary durable handoff. Short-lived
+    # Actions artifacts remain a fallback during the prerelease/tag handoff window.
+    candidate = latest_persistent_release_candidate()
+    if candidate is not None:
+        return candidate
+    return latest_actions_artifact_candidate()
 
 
 def download_encrypted_package(package_artifact: dict[str, Any], metadata: dict[str, Any]) -> bytes:
     package_url = package_artifact.get("url")
     if not isinstance(package_url, str):
-        fail("Encrypted package artifact URL is missing.")
-    archive = http_download(package_url, MAX_ARTIFACT_BYTES)
-    verify_artifact_archive_digest(archive, package_artifact.get("digest"), "Encrypted package")
+        fail("Encrypted package asset URL is missing.")
     filename = metadata.get("packageFileName")
     if not isinstance(filename, str) or not PACKAGE_NAME_RE.fullmatch(filename):
         fail("Release metadata contains an invalid encrypted package filename.")
-    return extract_one_artifact_file(
-        archive, filename.removesuffix(".zip") + ".xhubenc", MAX_CONTAINER_BYTES
-    )
+    if package_artifact.get("kind") == "release-asset":
+        encrypted = http_download(package_url, MAX_CONTAINER_BYTES)
+        verify_artifact_archive_digest(encrypted, package_artifact.get("digest"), "Persistent encrypted package")
+        if len(encrypted) != package_artifact.get("size"):
+            fail("Persistent encrypted package size differs from GitHub asset metadata.")
+        return encrypted
+    archive = http_download(package_url, MAX_ARTIFACT_BYTES)
+    verify_artifact_archive_digest(archive, package_artifact.get("digest"), "Encrypted package artifact")
+    return extract_one_artifact_file(archive, filename.removesuffix(".zip") + ".xhubenc", MAX_CONTAINER_BYTES)
 
 def parse_container(container: bytes, expected_key_id: str) -> tuple[dict[str, Any], bytes]:
     if not 12 <= len(container) <= MAX_CONTAINER_BYTES:
