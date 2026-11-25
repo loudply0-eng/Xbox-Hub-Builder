@@ -7,7 +7,7 @@ This directory contains the release publisher for the dedicated Oracle Linux upd
 - GitHub Actions builds the private application source in the public builder workflow.
 - Each successful build uploads two separate artifacts: the authenticated encrypted .xhubenc package and a small non-secret release-metadata JSON file.
 - The Oracle VM agent accepts only successful main-branch workflow runs with the immutable xboxhub-source-<private-source-sha> success tag.
-- It reads the small metadata artifact first. It skips downloading the large encrypted package when the candidate is already published.
+- It prefers the permanent prerelease handoff `xboxhub-candidate-<source-sha>` and reads its non-secret metadata asset first. It falls back to the 90-day Actions metadata/package artifacts only when the permanent candidate release is not yet available. It skips downloading the large encrypted package when the candidate is already published.
 - For a new stable version, OCI Vault decrypts the RSA-wrapped AES package key and signs the exact stable manifest payload.
 - The Oracle VM uses its Instance Principal. No GitHub secret, long-lived OCI API key, PEM private key, or signing passphrase is stored on the VM or in GitHub.
 - The app verifies the signed manifest, exact byte count, and SHA-256 before its startup updater installs a new release.
@@ -151,6 +151,7 @@ sudo journalctl -u xboxhub-release-agent.service -n 100 --no-pager
 After a successful first publication, the 10-minute systemd timer automatically checks for later stable build candidates. A newer stable version is accepted only after:
 
 - the public builder run completed successfully;
+- its permanent candidate prerelease (or fallback Actions artifacts) has GitHub SHA-256 digests matching the downloaded asset bytes;
 - its exact private-source SHA has a matching immutable success tag;
 - metadata is valid and matches the exact decrypted package size and SHA-256;
 - the encrypted container authenticates with AES-256-GCM using the configured Vault package key;
