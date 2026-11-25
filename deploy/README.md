@@ -89,6 +89,8 @@ Copy the Vault **Cryptographic Endpoint** (not the Management Endpoint) and the 
 
 ## 3. Install the agent on Oracle Linux
 
+The installer pins the downloaded agent, requirements, and systemd units to the audited source revision `aa85f3c8228b8eb11e4da3ec954b02e1c749bd4e`, which passed the x64 and ARM64 security-test matrix. This prevents a later unreviewed change on `main` from silently changing the deployed service. To deliberately test a newer revision, set `XBOXHUB_AGENT_REF` to its reviewed commit SHA when invoking the installer.
+
 From an authenticated SSH session to the update host, run:
 
 ~~~bash
