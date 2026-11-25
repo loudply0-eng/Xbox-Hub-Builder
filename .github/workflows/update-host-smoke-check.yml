@@ -196,7 +196,7 @@ jobs:
               raise SystemExit("Stable manifest product, channel, target, or version is invalid.")
           package_url = payload.get("packageUrl")
           parsed = urllib.parse.urlsplit(package_url if isinstance(package_url, str) else "")
-          if (parsed.scheme != "https" or parsed.hostname != "updates.mahmoudaljuorany.store" or
+          if (parsed.scheme != "https" or parsed.netloc != "updates.mahmoudaljuorany.store" or
               parsed.username or parsed.password or parsed.query or parsed.fragment or
               parsed.path != f"/stable/XboxHub-{version}-win-x64.zip"):
               raise SystemExit("Stable manifest package URL is outside the exact trusted versioned path.")
@@ -208,6 +208,12 @@ jobs:
               raise SystemExit("Stable manifest package SHA-256 is invalid.")
           if type(payload.get("releaseSequence")) is not int or payload["releaseSequence"] <= 0:
               raise SystemExit("Stable manifest release sequence is invalid.")
+          major, minor, patch = (int(part) for part in version.split("."))
+          if max(major, minor, patch) >= 1_000_000:
+              raise SystemExit("Stable manifest version component exceeds the supported range.")
+          expected_sequence = major * 1_000_000_000_000 + minor * 1_000_000 + patch
+          if payload["releaseSequence"] != expected_sequence:
+              raise SystemExit("Stable manifest sequence does not match its semantic version.")
 
           (temp / "payload.bin").write_bytes(payload_bytes)
           (temp / "signature.bin").write_bytes(signature)
@@ -237,6 +243,11 @@ jobs:
           expected_hash="$(cat "$temp_dir/package.sha256")"
           if [[ "$actual_size" != "$expected_size" || "$actual_hash" != "$expected_hash" ]]; then
             echo "ERROR: Downloaded package size or SHA-256 does not match the signed manifest."
+            exit 1
+          fi
+
+          if (( $(stat -c '%s' "$temp_dir/manifest.json") > 262144 )); then
+            echo "ERROR: Stable manifest exceeds the app's 256 KiB response limit."
             exit 1
           fi
 
