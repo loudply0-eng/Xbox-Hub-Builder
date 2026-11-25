@@ -43,7 +43,7 @@ usermod --append --groups "$AGENT_GROUP" "$NGINX_USER"
 
 install -d -o root -g root -m 0755 "$APP_DIR"
 install -d -o "$AGENT_USER" -g "$AGENT_GROUP" -m 0750 "$STATE_DIR"
-install -d -o root -g "$AGENT_GROUP" -m 2775 "$STABLE_DIR"
+install -d -o "$AGENT_USER" -g "$AGENT_GROUP" -m 2755 "$STABLE_DIR"
 
 fetch_file() {
   local remote="$1"
