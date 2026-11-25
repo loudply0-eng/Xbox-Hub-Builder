@@ -116,6 +116,7 @@ jobs:
           fi
 
           python3 - "$temp_dir" deploy/xboxhub_release_agent.py <<'PY'
+          import ast
           import base64
           import json
           import re
@@ -125,6 +126,18 @@ jobs:
 
           temp = Path(sys.argv[1])
           source = Path(sys.argv[2]).read_text(encoding="utf-8")
+          tree = ast.parse(source)
+          constants = {}
+          for node in tree.body:
+              if isinstance(node, ast.Assign):
+                  for target in node.targets:
+                      if isinstance(target, ast.Name) and target.id in {
+                          "RELEASE_KEY_ID", "RELEASE_PUBLIC_KEY_SPKI_B64"
+                      }:
+                          constants[target.id] = ast.literal_eval(node.value)
+
+          if set(constants) != {"RELEASE_KEY_ID", "RELEASE_PUBLIC_KEY_SPKI_B64"}:
+              raise SystemExit("Could not load the app release-verification key from the release agent.")
 
           def unique_object(pairs):
               result = {}
@@ -134,27 +147,18 @@ jobs:
                   result[key] = value
               return result
 
-          key_id_match = re.search(r'^RELEASE_KEY_ID = "([^"]+)"$', source, re.M)
-          public_key_match = re.search(
-              r'^RELEASE_PUBLIC_KEY_SPKI_B64 = \(\s*"([^"]+)"\s*\)$',
-              source,
-              re.M,
-          )
-          if not key_id_match or not public_key_match:
-              raise SystemExit("Could not load the app release-verification key from the release agent.")
-
           envelope = json.loads(
               (temp / "manifest.json").read_text(encoding="utf-8"),
               object_pairs_hook=unique_object,
           )
           if not isinstance(envelope, dict) or set(envelope) != {"keyId", "payload", "signature"}:
               raise SystemExit("Stable manifest envelope schema is invalid.")
-          if envelope["keyId"] != key_id_match.group(1):
+          if envelope["keyId"] != constants["RELEASE_KEY_ID"]:
               raise SystemExit("Stable manifest key ID does not match the app's embedded key.")
 
           payload_bytes = base64.b64decode(envelope["payload"], validate=True)
           signature = base64.b64decode(envelope["signature"], validate=True)
-          public_der = base64.b64decode(public_key_match.group(1), validate=True)
+          public_der = base64.b64decode(constants["RELEASE_PUBLIC_KEY_SPKI_B64"], validate=True)
           payload = json.loads(payload_bytes.decode("utf-8"), object_pairs_hook=unique_object)
           if not isinstance(payload, dict):
               raise SystemExit("Stable manifest payload is not a JSON object.")
@@ -236,141 +240,6 @@ jobs:
           import sys
           import zipfile
 
-          with zipfile.ZipFile(sys.argv[1], "r") as archive:
-              names = [entry.filename for entry in archive.infolist()]
-              if len(names) != 2 or set(names) != {"XboxHub.exe", "XboxHub.Updater.exe"}:
-                  raise SystemExit("Stable package ZIP does not contain exactly the two supported executables.")
-              if archive.testzip() is not None:
-                  raise SystemExit("Stable package ZIP failed CRC validation.")
-          print("PASS: package ZIP contains exactly XboxHub.exe and XboxHub.Updater.exe; all CRCs are valid.")
-          PY
-
-          echo "PASS: signed manifest and exact package bytes were verified end to end."
-
-      - name: Verify the TLS hostname and certificate chain independently with OpenSSL
-        shell: bash
-        run: |
-          set -euo pipefail
-          host="updates.mahmoudaljuorany.store"
-          output="$(mktemp)"
-          trap 'rm -f "$output"' EXIT
-          if ! timeout 20 openssl s_client \
-            -connect "$host:443" \
-            -servername "$host" \
-            -verify 5 \
-            -verify_hostname "$host" \
-            -verify_return_error \
-            </dev/null >"$output" 2>&1; then
-            cat "$output"
-            echo "ERROR: OpenSSL TLS verification failed."
-            exit 1
-          fi
-          grep -F "Verify return code: 0 (ok)" "$output"
-          echo "PASS: OpenSSL independently verified the public certificate chain."
-, source, re.M)
-          public_key_match = re.search(r'^RELEASE_PUBLIC_KEY_SPKI_B64 = \(\s*"([^"]+)"\s*\)
-      - name: Verify the TLS hostname and certificate chain independently with OpenSSL
-        shell: bash
-        run: |
-          set -euo pipefail
-          host="updates.mahmoudaljuorany.store"
-          output="$(mktemp)"
-          trap 'rm -f "$output"' EXIT
-          if ! timeout 20 openssl s_client \
-            -connect "$host:443" \
-            -servername "$host" \
-            -verify 5 \
-            -verify_hostname "$host" \
-            -verify_return_error \
-            </dev/null >"$output" 2>&1; then
-            cat "$output"
-            echo "ERROR: OpenSSL TLS verification failed."
-            exit 1
-          fi
-          grep -F "Verify return code: 0 (ok)" "$output"
-          echo "PASS: OpenSSL independently verified the public certificate chain."
-, source, re.M)
-          if not key_id_match or not public_key_match:
-              raise SystemExit("Could not load the pinned app release-verification key from the release agent.")
-          envelope = json.loads((temp / "manifest.json").read_text(encoding="utf-8"), object_pairs_hook=unique_object)
-          if not isinstance(envelope, dict) or set(envelope) != {"keyId", "payload", "signature"}:
-              raise SystemExit("Stable manifest envelope schema is invalid.")
-          if envelope["keyId"] != key_id_match.group(1):
-              raise SystemExit("Stable manifest key ID does not match the app's embedded key.")
-          payload_bytes = base64.b64decode(envelope["payload"], validate=True)
-          signature = base64.b64decode(envelope["signature"], validate=True)
-          public_der = base64.b64decode(public_key_match.group(1), validate=True)
-          payload = json.loads(payload_bytes.decode("utf-8"), object_pairs_hook=unique_object)
-
-          if not isinstance(payload, dict):
-              raise SystemExit("Stable manifest payload is not a JSON object.")
-          version = payload.get("version")
-          version_pattern = r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
-          if (payload.get("schemaVersion") != 1 or payload.get("productId") != "xbox-hub-for-pc" or
-              payload.get("channel") != "stable" or payload.get("platform") != "windows" or
-              payload.get("architecture") != "x64" or not isinstance(version, str) or
-              not re.fullmatch(version_pattern, version)):
-              raise SystemExit("Stable manifest product, channel, target, or version is invalid.")
-          package_url = payload.get("packageUrl")
-          parsed = urllib.parse.urlsplit(package_url if isinstance(package_url, str) else "")
-          if (parsed.scheme != "https" or parsed.netloc != "updates.mahmoudaljuorany.store" or
-              parsed.username or parsed.password or parsed.query or parsed.fragment or
-              parsed.path != f"/stable/XboxHub-{version}-win-x64.zip"):
-              raise SystemExit("Stable manifest package URL is outside the exact trusted versioned path.")
-          size = payload.get("packageSize")
-          package_hash = payload.get("packageSha256")
-          if type(size) is not int or not 0 < size <= 700 * 1024 * 1024:
-              raise SystemExit("Stable manifest package size is invalid.")
-          if not isinstance(package_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", package_hash):
-              raise SystemExit("Stable manifest package SHA-256 is invalid.")
-          if type(payload.get("releaseSequence")) is not int or payload["releaseSequence"] <= 0:
-              raise SystemExit("Stable manifest release sequence is invalid.")
-          major, minor, patch = (int(part) for part in version.split("."))
-          if max(major, minor, patch) >= 1_000_000:
-              raise SystemExit("Stable manifest version component exceeds the supported range.")
-          expected_sequence = major * 1_000_000_000_000 + minor * 1_000_000 + patch
-          if payload["releaseSequence"] != expected_sequence:
-              raise SystemExit("Stable manifest sequence does not match its semantic version.")
-
-          (temp / "payload.bin").write_bytes(payload_bytes)
-          (temp / "signature.bin").write_bytes(signature)
-          (temp / "public-key.der").write_bytes(public_der)
-          (temp / "package.url").write_text(package_url, encoding="utf-8")
-          (temp / "package.size").write_text(str(size), encoding="ascii")
-          (temp / "package.sha256").write_text(package_hash.lower(), encoding="ascii")
-          print(f"Manifest metadata: Xbox Hub {version}; package size {size}; SHA-256 {package_hash}")
-          PY
-
-          openssl pkey -pubin -inform DER -in "$temp_dir/public-key.der" -out "$temp_dir/public-key.pem"
-          openssl dgst -sha256 -verify "$temp_dir/public-key.pem" \
-            -signature "$temp_dir/signature.bin" "$temp_dir/payload.bin"
-
-          package_url="$(cat "$temp_dir/package.url")"
-          result="$(curl --silent --show-error --max-time 180 \
-            --output "$temp_dir/package.zip" --write-out '%{http_code} %{url_effective}' "$package_url")"
-          read -r status effective_url <<< "$result"
-          if [[ "$status" != "200" || "$effective_url" != "$package_url" ]]; then
-            echo "ERROR: Versioned package endpoint did not return HTTP 200 without redirects: $result"
-            exit 1
-          fi
-
-          actual_size="$(stat -c '%s' "$temp_dir/package.zip")"
-          actual_hash="$(sha256sum "$temp_dir/package.zip" | awk '{print $1}')"
-          expected_size="$(cat "$temp_dir/package.size")"
-          expected_hash="$(cat "$temp_dir/package.sha256")"
-          if [[ "$actual_size" != "$expected_size" || "$actual_hash" != "$expected_hash" ]]; then
-            echo "ERROR: Downloaded package size or SHA-256 does not match the signed manifest."
-            exit 1
-          fi
-
-          if (( $(stat -c '%s' "$temp_dir/manifest.json") > 262144 )); then
-            echo "ERROR: Stable manifest exceeds the app's 256 KiB response limit."
-            exit 1
-          fi
-
-          python3 - "$temp_dir/package.zip" <<'PY'
-          import sys
-          import zipfile
           with zipfile.ZipFile(sys.argv[1], "r") as archive:
               names = [entry.filename for entry in archive.infolist()]
               if len(names) != 2 or set(names) != {"XboxHub.exe", "XboxHub.Updater.exe"}:
