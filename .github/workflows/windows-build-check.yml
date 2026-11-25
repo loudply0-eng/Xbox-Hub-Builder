@@ -657,32 +657,56 @@ jobs:
             echo "This prerelease is a build handoff, not a published stable update."
           } > "$notes"
 
+          package_digest="sha256:$(sha256sum "$encrypted_package" | awk '{print $1}')"
+          metadata_digest="sha256:$(sha256sum "$metadata" | awk '{print $1}')"
+          expected_release="$RUNNER_TEMP/xboxhub-expected-release.json"
+          jq -n --arg tag "$release_tag" --arg asset "$expected_asset" \
+            --arg metadata "xboxhub-release-metadata.json" \
+            --arg package_digest "$package_digest" --arg metadata_digest "$metadata_digest" \
+            --argjson package_bytes "$package_bytes" --argjson metadata_bytes "$(stat -c '%s' "$metadata")" \
+            '{tagName:$tag, packageAsset:$asset, metadataAsset:$metadata, packageDigest:$package_digest, metadataDigest:$metadata_digest, packageBytes:$package_bytes, metadataBytes:$metadata_bytes}' \
+            > "$expected_release"
+
           existing="$RUNNER_TEMP/xboxhub-existing-release.json"
-          if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" \
-              --json tagName,isPrerelease,assets > "$existing" 2>/dev/null; then
-            jq -e --arg tag "$release_tag" --arg asset "$expected_asset" '
-              .tagName == $tag and
-              .isPrerelease == true and
-              ([.assets[].name] | sort) == ([$asset, "xboxhub-release-metadata.json"] | sort)
-            ' "$existing" >/dev/null
-            jq -e --arg asset "$expected_asset" --argjson bytes "$package_bytes" '
-              [.assets[] | select(.name == $asset and .size == $bytes)] | length == 1
-            ' "$existing" >/dev/null
-            echo "The encrypted handoff release already exists and matches this candidate."
-            exit 0
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" > "$existing" 2>/dev/null; then
+            if jq -e --slurpfile expected "$expected_release" '
+                .tag_name == $expected[0].tagName and
+                .draft == false and .prerelease == true and
+                ([.assets[].name] | sort) == ([$expected[0].packageAsset, $expected[0].metadataAsset] | sort) and
+                ([.assets[] | select(.name == $expected[0].packageAsset and .size == $expected[0].packageBytes and .digest == $expected[0].packageDigest)] | length) == 1 and
+                ([.assets[] | select(.name == $expected[0].metadataAsset and .size == $expected[0].metadataBytes and .digest == $expected[0].metadataDigest)] | length) == 1
+              ' "$existing" >/dev/null; then
+              echo "The persistent encrypted handoff release already contains the exact package and metadata bytes."
+            else
+              if [[ "$(jq -r '.immutable // false' "$existing")" == "true" ]]; then
+                echo "ERROR: Existing candidate release is immutable but its asset digests differ from this successful build." >&2
+                exit 1
+              fi
+              echo "Existing candidate release assets differ; replacing only its encrypted package and non-secret metadata."
+              gh release upload "$release_tag" "$encrypted_package" "$metadata" \
+                --repo "$GITHUB_REPOSITORY" --clobber
+            fi
+          else
+            gh release create "$release_tag" \
+              "$encrypted_package" \
+              "$metadata" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$release_title" \
+              --notes-file "$notes" \
+              --prerelease \
+              --latest=false
           fi
 
-          gh release create "$release_tag" \
-            "$encrypted_package" \
-            "$metadata" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "$release_title" \
-            --notes-file "$notes" \
-            --prerelease \
-            --latest=false
-
-          echo "Published permanent encrypted handoff release: $release_tag"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" > "$existing"
+          jq -e --slurpfile expected "$expected_release" '
+            .tag_name == $expected[0].tagName and
+            .draft == false and .prerelease == true and
+            ([.assets[].name] | sort) == ([$expected[0].packageAsset, $expected[0].metadataAsset] | sort) and
+            ([.assets[] | select(.name == $expected[0].packageAsset and .size == $expected[0].packageBytes and .digest == $expected[0].packageDigest)] | length) == 1 and
+            ([.assets[] | select(.name == $expected[0].metadataAsset and .size == $expected[0].metadataBytes and .digest == $expected[0].metadataDigest)] | length) == 1
+          ' "$existing" >/dev/null
+          echo "Verified permanent encrypted handoff release and exact GitHub asset digests: $release_tag"
 
   record-successful-source-revision:
     needs:
