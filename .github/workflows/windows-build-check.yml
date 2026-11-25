@@ -2,11 +2,15 @@ name: Windows WPF build and package validation
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/xbox-hub-build-trigger.txt"
+    inputs:
+      source_ref:
+        description: "Private Xbox Hub source branch to build"
+        required: true
+        type: choice
+        options:
+          - feature/automatic-in-app-updates
+          - main
+        default: feature/automatic-in-app-updates
 
 permissions:
   contents: read
@@ -27,7 +31,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: loudply0-eng/Xbox-Hub-for-PC
-          ref: main
+          ref: ${{ inputs.source_ref }}
           ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
           path: private-source
           persist-credentials: false
