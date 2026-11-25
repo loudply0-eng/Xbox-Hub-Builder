@@ -469,64 +469,10 @@ jobs:
           }
 
           $version = (dotnet msbuild $appProject -getProperty:InformationalVersion -nologo).Trim()
-          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)
-
-      - name: Test updater replacement and rollback transactions
-        shell: pwsh
-        run: |
-          $testProject = "private-source/src/XboxHub.Updater.Tests/XboxHub.Updater.Tests.csproj"
-          if (-not (Test-Path -LiteralPath $testProject)) { throw "Updater transaction test project is missing." }
-
-          dotnet run --project $testProject --configuration Release --verbosity minimal
-          if ($LASTEXITCODE -ne 0) { throw "Updater replacement and rollback tests failed." }
-
-      - name: Report build result without exposing source
-        if: success()
-        shell: pwsh
-        run: |
-          Write-Host "Xbox Hub for PC app and standalone updater validated successfully."
-          Write-Host "No private source, plaintext package, signing key, decryption key, or credential was uploaded."
-          $encryptedPath = "${{ steps.encrypted_package.outputs.encrypted_path }}"
-          if (-not [string]::IsNullOrWhiteSpace($encryptedPath)) {
-            Write-Host "Only the authenticated encrypted package container was uploaded as a short-lived artifact."
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$') {
+            throw "The app version is not valid three-part semantic version metadata."
           }
-          else {
-            Write-Host "No package artifact was uploaded because the owner's public package-encryption key is not configured."
-          }
-
-  record-successful-source-revision:
-    needs:
-      - detect-private-source-revision
-      - build-private-windows-app
-    if: github.ref == 'refs/heads/main' && success()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - name: Check out public builder repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: true
-          fetch-depth: 1
-
-      - name: Record successful build using an immutable source-revision tag
-        shell: bash
-        env:
-          SOURCE_SHA: ${{ needs.detect-private-source-revision.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          tag="xboxhub-source-$SOURCE_SHA"
-          if git ls-remote --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "Build marker already exists: $tag"
-          else
-            git tag "$tag"
-            git push origin "refs/tags/$tag"
-            echo "Recorded successful build: $tag"
-          fi
-) {
-            throw "Only stable three-part semantic versions can be published to the stable update channel."
-          }
+          $isStable = $version -match '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 
           $entries = @(Get-Content -LiteralPath $changelogPath -Raw | ConvertFrom-Json -ErrorAction Stop)
           $entry = $entries | Where-Object { $_.version -ceq $version } | Select-Object -First 1
@@ -537,77 +483,27 @@ jobs:
             throw "The matching changelog entry is incomplete or has an invalid number of release notes."
           }
 
-          $parsedVersion = [version]$version
-          if ($parsedVersion.Major -ge 1000000 -or $parsedVersion.Minor -ge 1000000 -or $parsedVersion.Build -ge 1000000) {
-            throw "Version components exceed the supported release-sequence range."
+          $releaseSequence = $null
+          $channel = "preview"
+          if ($isStable) {
+            $parsedVersion = [version]$version
+            if ($parsedVersion.Major -ge 1000000 -or $parsedVersion.Minor -ge 1000000 -or $parsedVersion.Build -ge 1000000) {
+              throw "Version components exceed the supported release-sequence range."
+            }
+            $releaseSequence = ([long]$parsedVersion.Major * 1000000000000L) + ([long]$parsedVersion.Minor * 1000000L) + [long]$parsedVersion.Build
+            if ($releaseSequence -le 0) { throw "Computed release sequence is not positive." }
+            $channel = "stable"
           }
-          $releaseSequence = ([long]$parsedVersion.Major * 1000000000000L) + ([long]$parsedVersion.Minor * 1000000L) + [long]$parsedVersion.Build
-          if ($releaseSequence -le 0) { throw "Computed release sequence is not positive." }
 
           $zipPath = Join-Path $env:RUNNER_TEMP ("XboxHub-" + $version + "-win-x64.zip")
           if (-not (Test-Path -LiteralPath $zipPath)) { throw "The exact validated plaintext ZIP is missing from runner temporary storage." }
           $sourceSha = (git -C private-source rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $sourceSha -notmatch '^[0-9a-f]{40}
-
-      - name: Test updater replacement and rollback transactions
-        shell: pwsh
-        run: |
-          $testProject = "private-source/src/XboxHub.Updater.Tests/XboxHub.Updater.Tests.csproj"
-          if (-not (Test-Path -LiteralPath $testProject)) { throw "Updater transaction test project is missing." }
-
-          dotnet run --project $testProject --configuration Release --verbosity minimal
-          if ($LASTEXITCODE -ne 0) { throw "Updater replacement and rollback tests failed." }
-
-      - name: Report build result without exposing source
-        if: success()
-        shell: pwsh
-        run: |
-          Write-Host "Xbox Hub for PC app and standalone updater validated successfully."
-          Write-Host "No private source, plaintext package, signing key, decryption key, or credential was uploaded."
-          $encryptedPath = "${{ steps.encrypted_package.outputs.encrypted_path }}"
-          if (-not [string]::IsNullOrWhiteSpace($encryptedPath)) {
-            Write-Host "Only the authenticated encrypted package container was uploaded as a short-lived artifact."
-          }
-          else {
-            Write-Host "No package artifact was uploaded because the owner's public package-encryption key is not configured."
-          }
-
-  record-successful-source-revision:
-    needs:
-      - detect-private-source-revision
-      - build-private-windows-app
-    if: github.ref == 'refs/heads/main' && success()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - name: Check out public builder repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: true
-          fetch-depth: 1
-
-      - name: Record successful build using an immutable source-revision tag
-        shell: bash
-        env:
-          SOURCE_SHA: ${{ needs.detect-private-source-revision.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          tag="xboxhub-source-$SOURCE_SHA"
-          if git ls-remote --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "Build marker already exists: $tag"
-          else
-            git tag "$tag"
-            git push origin "refs/tags/$tag"
-            echo "Recorded successful build: $tag"
-          fi
-) { throw "Could not determine the exact private-source commit." }
+          if ($LASTEXITCODE -ne 0 -or $sourceSha -notmatch '^[0-9a-f]{40}$') { throw "Could not determine the exact private-source commit." }
 
           $metadata = [ordered]@{
             schemaVersion = 1
             productId = "xbox-hub-for-pc"
-            channel = "stable"
+            channel = $channel
             version = $version
             releaseSequence = $releaseSequence
             platform = "windows"
@@ -623,68 +519,13 @@ jobs:
             builderRunId = [long]$env:GITHUB_RUN_ID
             builderRunAttempt = [int]$env:GITHUB_RUN_ATTEMPT
           }
-          if ($metadata.packageSize -le 0 -or $metadata.packageSize -gt 734003200 -or $metadata.packageSha256 -notmatch '^[a-f0-9]{64}
-
-      - name: Test updater replacement and rollback transactions
-        shell: pwsh
-        run: |
-          $testProject = "private-source/src/XboxHub.Updater.Tests/XboxHub.Updater.Tests.csproj"
-          if (-not (Test-Path -LiteralPath $testProject)) { throw "Updater transaction test project is missing." }
-
-          dotnet run --project $testProject --configuration Release --verbosity minimal
-          if ($LASTEXITCODE -ne 0) { throw "Updater replacement and rollback tests failed." }
-
-      - name: Report build result without exposing source
-        if: success()
-        shell: pwsh
-        run: |
-          Write-Host "Xbox Hub for PC app and standalone updater validated successfully."
-          Write-Host "No private source, plaintext package, signing key, decryption key, or credential was uploaded."
-          $encryptedPath = "${{ steps.encrypted_package.outputs.encrypted_path }}"
-          if (-not [string]::IsNullOrWhiteSpace($encryptedPath)) {
-            Write-Host "Only the authenticated encrypted package container was uploaded as a short-lived artifact."
-          }
-          else {
-            Write-Host "No package artifact was uploaded because the owner's public package-encryption key is not configured."
-          }
-
-  record-successful-source-revision:
-    needs:
-      - detect-private-source-revision
-      - build-private-windows-app
-    if: github.ref == 'refs/heads/main' && success()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - name: Check out public builder repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: true
-          fetch-depth: 1
-
-      - name: Record successful build using an immutable source-revision tag
-        shell: bash
-        env:
-          SOURCE_SHA: ${{ needs.detect-private-source-revision.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          tag="xboxhub-source-$SOURCE_SHA"
-          if git ls-remote --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "Build marker already exists: $tag"
-          else
-            git tag "$tag"
-            git push origin "refs/tags/$tag"
-            echo "Recorded successful build: $tag"
-          fi
-) {
+          if ($metadata.packageSize -le 0 -or $metadata.packageSize -gt 734003200 -or $metadata.packageSha256 -notmatch '^[a-f0-9]{64}$') {
             throw "The plaintext package identity is invalid."
           }
           $metadataPath = Join-Path $env:RUNNER_TEMP "xboxhub-release-metadata.json"
           [System.IO.File]::WriteAllText($metadataPath, ($metadata | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false))
           "metadata_path=$metadataPath" >> $env:GITHUB_OUTPUT
-          Write-Host "Created non-secret release metadata for version $version and source $sourceSha."
+          Write-Host "Created non-secret $channel release metadata for version $version and source $sourceSha."
           Write-Host "No application source, key material, or credential is included in this metadata file."
 
       - name: Upload encrypted package and non-secret release metadata
@@ -713,13 +554,14 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Xbox Hub for PC app and standalone updater validated successfully."
-          Write-Host "No private source, plaintext package, signing key, decryption key, or credential was uploaded."
+          Write-Host "No private source, plaintext app package, signing key, decryption key, or credential was uploaded."
           $encryptedPath = "${{ steps.encrypted_package.outputs.encrypted_path }}"
-          if (-not [string]::IsNullOrWhiteSpace($encryptedPath)) {
-            Write-Host "Only the authenticated encrypted package container was uploaded as a short-lived artifact."
+          $metadataPath = "${{ steps.release_metadata.outputs.metadata_path }}"
+          if (-not [string]::IsNullOrWhiteSpace($encryptedPath) -and -not [string]::IsNullOrWhiteSpace($metadataPath)) {
+            Write-Host "Uploaded the authenticated encrypted package plus a non-secret release-metadata sidecar."
           }
           else {
-            Write-Host "No package artifact was uploaded because the owner's public package-encryption key is not configured."
+            Write-Host "No deployable release artifact was uploaded because encryption or release metadata is not configured."
           }
 
   record-successful-source-revision:
