@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 REPO="loudply0-eng/Xbox-Hub-Builder"
-REF="@${XBOXHUB_AGENT_REF:-main}"
-BASE_URL="https://raw.githubusercontent.com/@${REPO}/@${REF}/deploy"
+REF="${XBOXHUB_AGENT_REF:-main}"
+BASE_URL="https://raw.githubusercontent.com/${REPO}/${REF}/deploy"
 APP_DIR="/opt/xboxhub-release-agent"
 STATE_DIR="/var/lib/xboxhub-release-agent"
 STABLE_DIR="/var/www/xbox-hub-updates/stable"
@@ -11,7 +11,7 @@ ENV_FILE="/etc/xboxhub-release-agent.env"
 AGENT_USER="xboxhub-release"
 AGENT_GROUP="xboxhub-updates"
 
-if [[ "@${EUID}" -ne 0 ]]; then
+if [[ "${EUID}" -ne 0 ]]; then
   echo "Run this installer once with sudo/root on the Oracle Linux update host." >&2
   exit 1
 fi
@@ -34,7 +34,7 @@ else
 fi
 
 NGINX_USER="$(awk '$1 == "user" { gsub(";", "", $2); print $2; exit }' /etc/nginx/nginx.conf 2>/dev/null || true)"
-NGINX_USER="@${NGINX_USER:-nginx}"
+NGINX_USER="${NGINX_USER:-nginx}"
 if ! getent passwd "$NGINX_USER" >/dev/null; then
   echo "Could not identify the Nginx worker account ($NGINX_USER)." >&2
   exit 1
