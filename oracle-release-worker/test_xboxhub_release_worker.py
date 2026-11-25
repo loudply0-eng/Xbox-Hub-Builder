@@ -67,11 +67,36 @@ class WorkerTests(unittest.TestCase):
             path=Path(td)/"candidate.xhubenc"; path.write_bytes(data)
             with self.assertRaisesRegex(RuntimeError,"exactly the two Xbox Hub"):
                 w.decrypt_package(path,meta,FakeVault(self.private,key))
+    def test_release_sequence_is_bound_to_semver(self):
+        self.assertEqual(w.release_sequence_for_version("0.1.11"), 1000011)
+        with self.assertRaisesRegex(RuntimeError, "does not match"):
+            w.validate_manifest({
+                "schemaVersion":1,"productId":w.PRODUCT,"channel":"stable","version":"0.1.11",
+                "releaseSequence":999999,"platform":"windows","architecture":"x64","packageFormat":"zip",
+                "packageUrl":w.PACKAGE_BASE+"XboxHub-0.1.11-win-x64.zip","packageSize":1024,
+                "packageSha256":"a"*64,"minimumUpdaterVersion":"0.1.9",
+                "title":"Automatic updates at startup","date":"2026-11-25","changes":["Automatic signed updates"]
+            })
+
+    def test_manifest_rejects_non_iso_date_and_bad_changelog(self):
+        manifest={"schemaVersion":1,"productId":w.PRODUCT,"channel":"stable","version":"0.1.11",
+                  "releaseSequence":1000011,"platform":"windows","architecture":"x64","packageFormat":"zip",
+                  "packageUrl":w.PACKAGE_BASE+"XboxHub-0.1.11-win-x64.zip","packageSize":1024,
+                  "packageSha256":"a"*64,"minimumUpdaterVersion":"0.1.9",
+                  "title":"Automatic updates at startup","date":"tomorrow","changes":["Automatic signed updates"]}
+        with self.assertRaisesRegex(RuntimeError, "date is invalid"):
+            w.validate_manifest(manifest)
+        manifest["date"]="2026-11-25"
+        manifest["changes"]=[{"unexpected":"object"}]
+        with self.assertRaisesRegex(RuntimeError, "changelog is invalid"):
+            w.validate_manifest(manifest)
+
     def test_manifest_url_is_pinned_to_stable_feed(self):
         manifest={"schemaVersion":1,"productId":w.PRODUCT,"channel":"stable","version":"0.1.11",
                   "releaseSequence":1000011,"platform":"windows","architecture":"x64","packageFormat":"zip",
                   "packageUrl":w.PACKAGE_BASE+"XboxHub-0.1.11-win-x64.zip","packageSize":1024,
-                  "packageSha256":"a"*64,"minimumUpdaterVersion":"0.1.9"}
+                  "packageSha256":"a"*64,"minimumUpdaterVersion":"0.1.9",
+                  "title":"Automatic updates at startup","date":"2026-11-25","changes":["Automatic signed updates"]}
         w.validate_manifest(manifest)
         manifest["packageUrl"]="https://attacker.example/package.zip"
         with self.assertRaisesRegex(RuntimeError,"outside the configured"):
