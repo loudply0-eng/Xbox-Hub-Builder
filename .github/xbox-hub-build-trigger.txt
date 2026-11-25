@@ -7,3 +7,5 @@ Build target: Windows x64, self-contained WPF app and standalone updater.
 Validation: restore, publish app and updater, validate exact two-file ZIP, run disposable-key signing/encryption positive and negative tests, and updater replacement/rollback transaction tests.
 Update behavior: signed stable-feed check at startup; verified newer package is downloaded and installed automatically through isolated updater; active-session discoveries install on next launch; 12-hour background checks remain notification-only.
 Security: execute only from public builder main; fetch private source with read-only deploy key; persist-credentials=false; production signing/decryption private keys remain offline; CI uses disposable test keys and public package-encryption key only; upload only the encrypted .xhubenc artifact. Never upload plaintext package, private source, game data, or production private keys.
+
+Automation validation: first post-merge end-to-end build for source polling, exact-SHA checkout, encrypted artifact handoff, and success marker.
