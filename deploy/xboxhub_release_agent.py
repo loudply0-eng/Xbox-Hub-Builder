@@ -251,9 +251,6 @@ def verify_source_build_and_marker(run: dict[str, Any], metadata: dict[str, Any]
     source_sha = metadata.get("sourceSha", "")
     if not isinstance(source_sha, str) or not SOURCE_SHA_RE.fullmatch(source_sha):
         fail("Release metadata contains an invalid source revision.")
-    run_head_sha = run.get("head_sha", "")
-    if not isinstance(run_head_sha, str) or not SOURCE_SHA_RE.fullmatch(run_head_sha):
-        fail("GitHub Actions run does not expose a valid builder commit SHA.")
     tag_url = f"https://api.github.com/repos/{GITHUB_REPO}/git/ref/tags/xboxhub-source-{source_sha}"
     try:
         marker = http_json(tag_url)
@@ -262,11 +259,15 @@ def verify_source_build_and_marker(run: dict[str, Any], metadata: dict[str, Any]
             raise RuntimeError("The candidate source has no successful-build marker yet.") from exc
         raise
     marker_object = marker.get("object", {})
-    # Tags live in the public builder repository. They point to the exact builder
-    # commit that completed the run, while the tag name encodes the private SHA.
+    # The immutable tag name encodes the private source SHA. Its target is a
+    # builder-repository commit from the first successful build of that source;
+    # later rebuilds reuse this marker and therefore need not target their own
+    # newer builder commit.
+    marker_sha = marker_object.get("sha", "")
     if (marker.get("ref") != f"refs/tags/xboxhub-source-{source_sha}" or
-            marker_object.get("sha") != run_head_sha):
-        fail("Successful source-build marker does not point to the builder commit for this run.")
+            not isinstance(marker_sha, str) or not SOURCE_SHA_RE.fullmatch(marker_sha) or
+            marker_object.get("type") != "commit"):
+        fail("Successful source-build marker is malformed or does not point to a builder commit.")
     if metadata.get("releaseSequence") != release_sequence(metadata.get("version", "")):
         fail("Release metadata sequence does not match its semantic version.")
 
