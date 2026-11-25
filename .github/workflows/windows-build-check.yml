@@ -564,10 +564,119 @@ jobs:
             Write-Host "No deployable release artifact was uploaded because encryption or release metadata is not configured."
           }
 
+  publish-encrypted-candidate-for-oracle:
+    needs:
+      - detect-private-source-revision
+      - build-private-windows-app
+    if: github.ref == 'refs/heads/main' && success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download this run's encrypted package handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="$RUNNER_TEMP/xboxhub-candidate"
+          mkdir -p "$destination"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name xboxhub-encrypted-offline-package \
+            --dir "$destination"
+          echo "Downloaded the encrypted package and non-secret release metadata."
+
+      - name: Validate candidate metadata and publish an immutable handoff release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.detect-private-source-revision.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          directory="$RUNNER_TEMP/xboxhub-candidate"
+          metadata="$directory/xboxhub-release-metadata.json"
+          [[ -f "$metadata" ]]
+          mapfile -t packages < <(find "$directory" -maxdepth 1 -type f -name '*.xhubenc' -print)
+          mapfile -t files < <(find "$directory" -maxdepth 1 -type f -print)
+          [[ "${#packages[@]}" -eq 1 ]]
+          [[ "${#files[@]}" -eq 2 ]]
+
+          jq -e --arg source "$SOURCE_SHA" --arg run "$GITHUB_RUN_ID" '
+            .schemaVersion == 1 and
+            .productId == "xbox-hub-for-pc" and
+            (.channel == "stable" or .channel == "preview") and
+            (.version | type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$")) and
+            .sourceSha == $source and
+            ((.builderRunId | tostring) == $run) and
+            (.packageFileName | type == "string" and test("^XboxHub-[0-9A-Za-z.-]+-win-x64\\.zip$")) and
+            (.packageSize | type == "number" and . > 0 and . <= 734003200) and
+            (.packageSha256 | type == "string" and test("^[a-f0-9]{64}$")) and
+            (.releaseSequence | type == "number" and . >= 0)
+          ' "$metadata" >/dev/null
+
+          package_name="$(jq -r '.packageFileName' "$metadata")"
+          expected_asset="${package_name%.zip}.xhubenc"
+          encrypted_package="${packages[0]}"
+          [[ "$(basename "$encrypted_package")" == "$expected_asset" ]]
+          channel="$(jq -r '.channel' "$metadata")"
+          version="$(jq -r '.version' "$metadata")"
+          package_bytes="$(stat -c '%s' "$encrypted_package")"
+          [[ "$package_bytes" -gt 0 ]]
+
+          release_tag="xboxhub-candidate-$SOURCE_SHA"
+          release_title="Xbox Hub $version encrypted candidate"
+          notes="$RUNNER_TEMP/xboxhub-candidate-release-notes.md"
+          {
+            echo "Encrypted build handoff for Xbox Hub."
+            echo
+            echo "Version: $version"
+            echo "Channel metadata: $channel"
+            echo "Private source revision: $SOURCE_SHA"
+            echo "Builder run: $GITHUB_RUN_ID"
+            echo
+            jq -r '.changes[] | "- " + .' "$metadata"
+            echo
+            echo "Only the authenticated encrypted .xhubenc package and non-secret metadata are attached."
+            echo "This prerelease is a build handoff, not a published stable update."
+          } > "$notes"
+
+          existing="$RUNNER_TEMP/xboxhub-existing-release.json"
+          if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" \
+              --json tagName,isPrerelease,assets > "$existing" 2>/dev/null; then
+            jq -e --arg tag "$release_tag" --arg asset "$expected_asset" '
+              .tagName == $tag and
+              .isPrerelease == true and
+              ([.assets[].name] | sort) == ([$asset, "xboxhub-release-metadata.json"] | sort)
+            ' "$existing" >/dev/null
+            jq -e --arg asset "$expected_asset" --argjson bytes "$package_bytes" '
+              [.assets[] | select(.name == $asset and .size == $bytes)] | length == 1
+            ' "$existing" >/dev/null
+            echo "The immutable encrypted handoff release already exists and matches this candidate."
+            exit 0
+          fi
+
+          gh release create "$release_tag" \
+            "$encrypted_package" \
+            "$metadata" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$release_title" \
+            --notes-file "$notes" \
+            --prerelease \
+            --latest=false
+
+          echo "Published permanent encrypted handoff release: $release_tag"
+
   record-successful-source-revision:
     needs:
       - detect-private-source-revision
       - build-private-windows-app
+      - publish-encrypted-candidate-for-oracle
     if: github.ref == 'refs/heads/main' && success()
     runs-on: ubuntu-latest
     timeout-minutes: 5
