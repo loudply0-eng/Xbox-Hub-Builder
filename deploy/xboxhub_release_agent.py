@@ -175,7 +175,7 @@ def http_download(url: str, max_bytes: int) -> bytes:
     return bytes(chunks)
 
 
-def latest_candidate_artifact() -> tuple[dict[str, Any], bytes, dict[str, Any]]:
+def latest_candidate_artifact() -> tuple[dict[str, Any], bytes, dict[str, Any]] | None:
     runs_url = (
         f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_ID}/runs"
         "?branch=main&status=success&per_page=20"
@@ -213,6 +213,10 @@ def latest_candidate_artifact() -> tuple[dict[str, Any], bytes, dict[str, Any]]:
                 fail("Release artifact file size is outside the configured limit.")
             metadata = json_loads_strict(zf.read(metadata_info))
             encrypted = zf.read(encrypted_info)
+        if not isinstance(metadata, dict) or metadata.get("channel") != "stable":
+            continue
+        if not isinstance(metadata.get("version"), str) or not STABLE_VERSION_RE.fullmatch(metadata["version"]):
+            continue
         if metadata.get("builderRunId") != run_id:
             fail("Release metadata run ID does not match its GitHub Actions run.")
         source_sha = metadata.get("sourceSha", "")
