@@ -1,67 +1,79 @@
 # Xbox Hub Builder
 
-Public repository for reviewed build automation only.
+Public repository for reviewed build automation only. The authoritative application source remains private in [loudply0-eng/Xbox-Hub-for-PC](https://github.com/loudply0-eng/Xbox-Hub-for-PC).
 
 ## Security boundary
 
-- Application source of truth: [loudply0-eng/Xbox-Hub-for-PC](https://github.com/loudply0-eng/Xbox-Hub-for-PC) (**private**).
-- This repository contains only generic, reviewed build workflows and scripts.
 - Never copy application source, private configuration, signing keys, certificates, access tokens, SSH credentials, or user data into this repository.
 - Never upload source archives, checkout directories, plaintext app packages, private logs, signing material, or private keys as workflow artifacts.
-- The only application package artifact permitted here is the authenticated encrypted `.xhubenc` container, encrypted to the owner's public package-encryption key.
+- The application package artifact must be the authenticated encrypted .xhubenc container, encrypted to the owner's public package-encryption key.
+- The separate release-metadata artifact is non-secret. It contains version, release notes, plaintext ZIP size/SHA-256, source commit SHA, and builder run identifiers only.
+- Production release-signing and package-decryption private keys are never used by CI.
 
-## Current workflows
+## Current workflows and release tooling
 
-- `private-source-check.yml` — verifies the read-only private-source connection, compiles the offline package decryptor and manifest signer, and runs six disposable-key regression tests (five decryptor tests plus one signer test).
-- `windows-build-check.yml` — Windows x64 restore/publish, exact two-file ZIP validation, offline manifest-signer positive/negative tests, encrypted-package round-trip and tamper tests, and updater replacement/rollback tests.
-- `xcl-runtime-windows-build.yml` — builds the separately licensed XCL runtime from its pinned upstream source.
-- `update-host-smoke-check.yml` — weekly and manually dispatchable external DNS, HTTP redirect, TLS-chain, and stable-manifest endpoint check.
+- private-source-check.yml — verifies the read-only private-source connection and tests offline helper tools with disposable keys.
+- windows-build-check.yml — Windows x64 restore/publish, exact two-file ZIP validation, offline manifest-signer positive/negative tests, encrypted-package round-trip and tamper tests, metadata generation, and updater replacement/rollback tests.
+- release-agent-tests.yml — compiles the Oracle release agent and local key-import helper, checks OCI SDK crypto request models, validates the Oracle Linux installer syntax, and runs cryptographic regression tests.
+- xcl-runtime-windows-build.yml — builds the separately licensed XCL runtime from its pinned upstream source.
+- update-host-smoke-check.yml — scheduled external DNS, HTTP redirect, TLS-chain, and stable-manifest endpoint checks.
+- deploy/xboxhub_release_agent.py — Oracle Linux release agent using the VM's OCI Instance Principal and two narrowly scoped Vault HSM keys.
+- deploy/prepare_oci_rsa_import.py — local offline wrapper that prepares the owner's encrypted RSA private keys for OCI HSM import, without sending the PEM or passphrase anywhere.
+- deploy/install-xboxhub-release-agent.sh and deploy/README.md — one-time Oracle Linux installation and OCI configuration instructions.
 
-The source checkout uses the read-only `SOURCE_REPO_DEPLOY_KEY` Actions secret and sets `persist-credentials: false`. The private source is checked out only on the trusted `main` branch. The Windows workflow publishes into runner-temporary storage, validates the ZIP, tests the offline signer and package encryption with disposable keys, then encrypts the actual package for the owner's public recipient key. It uploads the authenticated encrypted container and its non-secret release metadata as a short-lived Actions artifact, then publishes the same two files as a permanent GitHub prerelease after validating the metadata. The production release-signing key and package-decryption private key are never used by CI.
+## Private-source build automation
 
-The Windows build workflow runs on manual dispatch, when the trusted build-trigger marker changes on `main`, and through a lightweight 15-minute source-revision poll. The poll uses an Ubuntu runner to inspect the private source `main` commit and compare it with immutable `xboxhub-source-<sha>` tags in this public builder. A Windows build starts only for a previously unseen revision (or an explicit manual/marker trigger), checks out the exact detected commit, and records a tag only after all successful handoff steps complete. No Windows runner is used when the scheduled poll finds no new source revision. After validation, the workflow publishes the authenticated encrypted `.xhubenc` package and non-secret release metadata as a GitHub prerelease uniquely keyed by the private-source SHA. This gives the Oracle release worker a durable public download without a long-lived GitHub credential. The prerelease is only an encrypted build handoff: it does not sign or publish a production stable update.
+The source checkout uses the read-only SOURCE_REPO_DEPLOY_KEY Actions secret and sets persist-credentials=false. The private source is checked out only on the trusted main branch.
 
-## Latest Xbox Hub build — 2026-11-25
+The public builder polls private Xbox Hub main every 15 minutes and compares it with immutable xboxhub-source-<sha> success tags. A Windows runner starts only for a new private-source revision (or an explicit manual/marker trigger), checks out the exact detected SHA, validates the app and updater, and records a tag only after all build and handoff steps succeed. No Windows runner is used when the scheduled poll finds no new source revision.
 
-<https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45529059625>
+The Windows workflow now uploads two separate short-lived artifacts:
+1. xboxhub-encrypted-offline-package — the encrypted .xhubenc app package only.
+2. xboxhub-release-metadata — a small non-secret JSON sidecar.
 
-- Result: **success** (workflow run 46; all three jobs succeeded).
-- Source: private `loudply0-eng/Xbox-Hub-for-PC` `main`, commit `d5784af33a173f844a9a84fe362d18531df5ada7`.
-- App version: `0.1.11`.
-- Windows x64 package: `XboxHub-0.1.11-win-x64.zip`.
-- Plaintext package size: `91,686,459` bytes.
-- Plaintext package SHA-256: `F08A8082164AA7DF52FCF3925E340975268C692C50423D4BD8608ECA32498E52`.
-- Uploaded artifact: `xboxhub-encrypted-offline-package` (encrypted `.xhubenc` only; artifact ID `14983199517`).
-- Artifact expiry: **2026-11-28 01:55:01 UTC**.
+The plaintext ZIP and private source remain on the isolated Windows runner and are not uploaded. Both artifacts expire after three days. The Oracle release agent checks successful workflow runs and source-success tags, verifies GitHub's artifact archive digests, reads metadata first, and downloads the large encrypted package only when a newer stable candidate needs publication.
 
-The successful run checked out the exact current private-source commit, restored and published the app and standalone updater, validated the exact two-file ZIP, passed offline signature-helper positive/negative checks with throwaway keys, verified package encryption/decryption round-trip and tamper rejection, and passed updater replacement, rollback, and path-validation tests. The upload contains only the authenticated encrypted package. The plaintext ZIP, private source, production signing key, package-decryption key, and passphrases were not uploaded.
+## Latest validated application build
 
-This is a **0.1.11 candidate build**, not a published stable release. Manual Windows acceptance testing of this exact candidate and the complete live-feed update test remain outstanding. The plaintext digest above identifies the ZIP produced inside the isolated runner; it is not the checksum of the encrypted GitHub artifact archive.
+[Windows build run 45529059625](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45529059625) completed successfully (workflow run 46; all three jobs succeeded).
 
-## Automatic update service status
+- Private-source revision: d5784af33a173f844a9a84fe362d18531df5ada7.
+- App version: 0.1.11.
+- Plaintext package size: 91,686,459 bytes.
+- Plaintext package SHA-256: F08A8082164AA7DF52FCF3925E340975268C692C50423D4BD8608ECA32498E52.
+- Encrypted artifact ID: 14983199517; expired on 2026-11-28 01:55:01 UTC.
+
+This earlier successful build predates the separate metadata artifact change; the next Windows build validates that updated handoff format. The 0.1.11 candidate is not a published stable release. Manual Windows acceptance testing of this exact candidate and a complete live-feed update test are still required.
+
+## Automatic update client
 
 The 0.1.11 app checks the signed stable feed at startup and automatically downloads and installs a newer release only after the embedded RSA-3072 public key verifies the manifest and the package passes exact byte-count and SHA-256 checks. A 12-hour background check does not restart the app mid-session; an update found then is installed on the next launch. The separate updater retains backup and rollback protection.
 
-The dedicated HTTPS host is provisioned. The latest recorded external health check passed on 2026-11-24:
+The dedicated HTTPS host has previously passed DNS, same-host HTTP-to-HTTPS redirect, and TLS validation in [health-check run 45320477641](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45320477641). That check returned HTTP 404 for /stable/manifest.json on 2026-11-24. The host has not been rechecked since that date.
 
-<https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45320477641>
+## OCI publication status
 
-That check confirmed public DNS, the exact HTTP-to-HTTPS redirect, and TLS certificate validation. The stable endpoint `/stable/manifest.json` returned **404** in that check, because the signed stable manifest and package had not yet been published. It has not been independently rechecked since then.
+The Oracle release agent and one-time installation assets are prepared in deploy/. The design uses:
 
-Therefore the updater code is implemented but **live automatic updates are not yet available**. The production release-signing and package-decryption keys remain offline; OCI Vault signing/decryption, GitHub-to-OCI workload identity, and controlled host deployment are not configured. Do not place production private keys or passphrases in GitHub Actions or on the Oracle VM.
+- a package-decryption RSA-3072 key imported into OCI Vault HSM;
+- a separate release-signing RSA-3072 key imported into OCI Vault HSM;
+- an exact-instance Dynamic Group and key-scoped IAM policies;
+- the Oracle VM's Instance Principal for short-lived Vault access;
+- a 10-minute systemd timer after installation;
+- an independent OCI key self-test before the timer is enabled.
+
+Automatic publication is **disabled by default** in deploy/xboxhub-release-agent.env.example. The agent does not publish the first candidate until the owner has manually accepted that exact Windows build and explicitly enables the setting. Once that initial acceptance is completed, later stable candidates can be signed and published automatically. Preview versions are never sent to the stable feed.
+
+**The OCI resources and Oracle VM service have not yet been configured.** The Vault keys have not been imported, the Dynamic Group and IAM policies have not been created, the installation script has not been run on the Oracle VM, and no stable manifest or package has been published. This repository connection can modify GitHub files and workflows, but it does not provide an authenticated OCI Console or Oracle VM session. See [deploy/README.md](deploy/README.md) for the remaining one-time setup.
 
 ## Secret handling
 
-- The public source-checkout key is a read-only deploy key registered on `loudply0-eng/Xbox-Hub-for-PC`; its private half is stored as `SOURCE_REPO_DEPLOY_KEY` in this builder's Actions secrets.
+- The public source-checkout key is a read-only deploy key registered on loudply0-eng/Xbox-Hub-for-PC; its private half is stored as SOURCE_REPO_DEPLOY_KEY in this builder's Actions secrets.
 - Never enable write access for that deploy key.
-- Never put the production RSA release-signing private key, its passphrase, the package-decryption private key, the Oracle TLS key, server credentials, or a long-lived server SSH key in this public repository, GitHub Actions secrets, logs, or artifacts.
-- The production release-signing private key remains offline. CI must use disposable keys only for tests.
-- Keep workflow changes restricted to trusted maintainers. A workflow executing on `main` can access the private-source checkout key, so review every change to secret-bearing workflows before merging or dispatching it.
+- Never put production RSA private keys, key passphrases, OCI API credentials, server credentials, or SSH keys in either repository, GitHub Actions, logs, or artifacts.
+- The Oracle agent uses only the VM Instance Principal and the two exact Vault key IDs. Nginx receives read-only group access to the published stable files; only the release-agent account can write them.
+- Review all workflow changes on main because the Windows workflow uses the read-only private-source checkout key.
 
 ## Dependency maintenance
 
-`.github/dependabot.yml` configures weekly checks for GitHub Actions references. Review Dependabot pull requests and retain full-SHA pinning when updating Actions.
-
-## Future release deployment
-
-Do not add production signing secrets or long-lived server credentials to this public repository. Production publication must accept only an offline-signed manifest and the exact package bytes it describes. Any future GitHub-to-Oracle deployment integration must use a narrowly scoped, short-lived authentication design and independently verify the signed manifest, package digest, release sequence, and exact output paths on the host.
+.dependabot.yml configures weekly checks for GitHub Actions references. Review dependency updates and retain full-SHA pinning when updating Actions.
