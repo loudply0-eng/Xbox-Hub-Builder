@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import xboxhub_release_agent as agent
+import prepare_oci_rsa_import as oci_import
 
 
 def make_plain_package() -> bytes:
@@ -184,6 +185,54 @@ class ReleaseAgentTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Refusing to overwrite"):
                 agent.atomic_write_new(target, b"second")
             self.assertEqual(target.read_bytes(), b"first")
+
+
+    def test_offline_oci_import_wrapper_round_trips_pkcs8_key_material(self):
+        app_private = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+        vault_wrapping_private = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+        public_der = app_private.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        key_id = "xboxhub-rsa3072-" + hashlib.sha256(public_der).hexdigest()[:16]
+        private_pem = app_private.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.BestAvailableEncryption(b"test-passphrase"),
+        )
+        wrapping_pem = vault_wrapping_private.public_key().public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        wrapped, returned_id = oci_import.wrap_private_key_material(
+            private_pem,
+            b"test-passphrase",
+            wrapping_pem,
+            key_id,
+        )
+        self.assertEqual(returned_id, key_id)
+        wrapped_aes_key = wrapped[:512]
+        wrapped_pkcs8 = wrapped[512:]
+        aes_key = vault_wrapping_private.decrypt(
+            wrapped_aes_key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+        from cryptography.hazmat.primitives.keywrap import aes_key_unwrap_with_padding
+        unwrapped_pkcs8 = aes_key_unwrap_with_padding(
+            aes_key,
+            wrapped_pkcs8,
+            iv=oci_import.ORACLE_AES_WRAP_IV,
+        )
+        restored_private = serialization.load_der_private_key(unwrapped_pkcs8, password=None)
+        restored_public_der = restored_private.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        self.assertEqual(restored_public_der, public_der)
 
     def test_release_agent_does_not_poll_or_publish_when_disabled(self):
         config = agent.Config(
