@@ -2,7 +2,9 @@
 set -Eeuo pipefail
 
 REPO="loudply0-eng/Xbox-Hub-Builder"
-REF="${XBOXHUB_AGENT_REF:-main}"
+# Pin the deployed agent and systemd units to the revision that passed the
+# x64 + ARM64 security-test matrix. Override only for a deliberately reviewed upgrade.
+REF="${XBOXHUB_AGENT_REF:-aa85f3c8228b8eb11e4da3ec954b02e1c749bd4e}"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${REF}/deploy"
 APP_DIR="/opt/xboxhub-release-agent"
 STATE_DIR="/var/lib/xboxhub-release-agent"
