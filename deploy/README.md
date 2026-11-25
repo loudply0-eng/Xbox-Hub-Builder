@@ -11,6 +11,7 @@ This directory contains the release publisher for the dedicated Oracle Linux upd
 - For a new stable version, OCI Vault decrypts the RSA-wrapped AES package key and signs the exact stable manifest payload.
 - The Oracle VM uses its Instance Principal. No GitHub secret, long-lived OCI API key, PEM private key, or signing passphrase is stored on the VM or in GitHub.
 - The app verifies the signed manifest, exact byte count, and SHA-256 before its startup updater installs a new release.
+The agent also keeps a root-owned-by-service, mode-0600 publication ledger at `/var/lib/xboxhub-release-agent/state.json`. The last successful release identity is checked independently of the public manifest, so deleting or losing `manifest.json` cannot silently reset the publisher's stable version floor. A malformed state file fails closed and requires operator recovery; it is not silently overwritten.
 
 **Publication is disabled by default.** Keep XBOXHUB_RELEASE_AUTO_PUBLISH_ENABLED=false until the exact first candidate has been manually accepted on Windows and the OCI key self-test succeeds.
 
