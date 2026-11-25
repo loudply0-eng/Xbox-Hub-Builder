@@ -381,6 +381,59 @@ class ReleaseAgentTests(unittest.TestCase):
             self.assertTrue((stable_dir / package_name).is_file())
             self.assertFalse(config.state_file.exists())
 
+    def test_publish_removes_first_manifest_when_public_verification_fails(self):
+        package = make_plain_package()
+        package_name = "XboxHub-0.1.11-win-x64.zip"
+        package_digest = hashlib.sha256(package).hexdigest()
+        payload = {
+            "schemaVersion": 1,
+            "productId": "xbox-hub-for-pc",
+            "channel": "stable",
+            "version": "0.1.11",
+            "releaseSequence": agent.release_sequence("0.1.11"),
+            "platform": "windows",
+            "architecture": "x64",
+            "packageUrl": "https://updates.mahmoudaljuorany.store/stable/" + package_name,
+            "packageFormat": "zip",
+            "packageSize": len(package),
+            "packageSha256": package_digest,
+            "minimumUpdaterVersion": "0.1.9",
+            "title": "First test release",
+            "date": "2026-11-25",
+            "changes": ["Test removal of an unverified first manifest."],
+        }
+        payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        envelope = json.dumps({
+            "keyId": agent.RELEASE_KEY_ID,
+            "payload": base64.b64encode(payload_bytes).decode("ascii"),
+            "signature": base64.b64encode(b"test-signature").decode("ascii"),
+        }, separators=(",", ":")).encode("utf-8")
+        metadata = {"sourceSha": "d" * 40, "builderRunId": 789}
+        header = {"originalFileName": package_name}
+
+        with tempfile.TemporaryDirectory() as directory:
+            stable_dir = Path(directory) / "stable"
+            stable_dir.mkdir()
+            manifest_path = stable_dir / "manifest.json"
+            config = agent.Config(
+                crypto_endpoint="https://kms.example.invalid",
+                package_key_ocid="package-key",
+                package_key_version_ocid="package-version",
+                signing_key_ocid="signing-key",
+                signing_key_version_ocid="signing-version",
+                stable_dir=stable_dir,
+                state_file=Path(directory) / "state" / "state.json",
+                auto_publish_enabled=True,
+            )
+            with patch.object(agent, "verify_existing_manifest", return_value=None):
+                with patch.object(agent, "http_verify_published", side_effect=RuntimeError("public verification failed")):
+                    with self.assertRaisesRegex(RuntimeError, "public verification failed"):
+                        agent.publish_candidate(config, metadata, header, package, envelope)
+
+            self.assertFalse(manifest_path.exists())
+            self.assertTrue((stable_dir / package_name).is_file())
+            self.assertFalse(config.state_file.exists())
+
     def test_artifact_extraction_requires_exactly_one_expected_file(self):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
