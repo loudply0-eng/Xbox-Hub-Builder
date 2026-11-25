@@ -320,6 +320,12 @@ class ReleaseAgentTests(unittest.TestCase):
             public_verify.assert_called_once_with(
                 Path(directory), "XboxHub-0.1.11-win-x64.zip", package, manifest_bytes
             )
+            repaired_state = json.loads(config.state_file.read_text(encoding="utf-8"))
+            self.assertEqual(repaired_state["version"], "0.1.11")
+            self.assertEqual(repaired_state["releaseSequence"], 1_000_011)
+            self.assertEqual(repaired_state["packageSha256"], package_digest)
+            self.assertEqual(repaired_state["sourceSha"], "a" * 40)
+            self.assertEqual(repaired_state["builderRunId"], 123)
 
     def test_publish_restores_previous_manifest_when_public_verification_fails(self):
         package = make_plain_package()
