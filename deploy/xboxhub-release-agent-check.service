@@ -1,0 +1,27 @@
+[Unit]
+Description=Validate Xbox Hub OCI Vault key access without publishing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=xboxhub-release
+Group=xboxhub-updates
+SupplementaryGroups=xboxhub-updates
+WorkingDirectory=/opt/xboxhub-release-agent
+EnvironmentFile=/etc/xboxhub-release-agent.env
+ExecStart=/opt/xboxhub-release-agent/venv/bin/python /opt/xboxhub-release-agent/xboxhub_release_agent.py --check-only
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+MemoryDenyWriteExecute=true
+ReadOnlyPaths=/var/www/xbox-hub-updates/stable
+ReadWritePaths=/var/lib/xboxhub-release-agent
