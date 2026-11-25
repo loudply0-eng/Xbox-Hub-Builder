@@ -616,7 +616,8 @@ jobs:
             (.packageFileName | type == "string" and test("^XboxHub-[0-9A-Za-z.-]+-win-x64\\.zip$")) and
             (.packageSize | type == "number" and . > 0 and . <= 734003200) and
             (.packageSha256 | type == "string" and test("^[a-f0-9]{64}$")) and
-            ((.channel == "stable" and (.releaseSequence | type == "number" and . > 0)) or\n             (.channel == "preview" and (.releaseSequence == null or (.releaseSequence | type == "number" and . >= 0))))
+            ((.channel == "stable" and (.releaseSequence | type == "number" and . > 0)) or
+             (.channel == "preview" and (.releaseSequence == null or (.releaseSequence | type == "number" and . >= 0))))
           ' "$metadata" >/dev/null
 
           package_name="$(jq -r '.packageFileName' "$metadata")"
