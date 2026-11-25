@@ -50,3 +50,17 @@ Tests use ephemeral RSA keys only and do not call OCI. Run python3 -m unittest -
 ## Compatibility with the current stable feed
 
 The worker reads and verifies the existing signed Stable manifest in legacy-compatible mode so the previously deployed sequence (including the older 0.1.10 feed) remains usable. New candidates and every newly signed manifest must use the current deterministic semantic-version sequence. Legacy compatibility applies only to the already-published feed manifest; it does not relax candidate validation.
+
+
+## One-time Oracle Linux installation
+
+After both OCI HSM keys have been prepared and the VM Dynamic Group policy is in place, install the worker once from the Oracle SSH terminal:
+
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/loudply0-eng/Xbox-Hub-Builder/main/oracle-release-worker/install.sh -o install.sh
+sudo bash install.sh
+~~~
+
+The installer downloads worker files from a pinned public-builder commit, installs Python dependencies, asks once for the five non-secret Vault endpoint/key OCID values, writes a root-owned `0640` environment file, installs the hardened systemd service and timer, and runs the first poll. It preserves an existing environment file. After installation, the timer polls every 15 minutes without Windows PowerShell or a GitHub token.
+
+The installer does not import private keys or create OCI IAM policies. Those owner/admin actions must be completed in OCI Console first. Initial Stable publication remains gated if no signed manifest already exists.
