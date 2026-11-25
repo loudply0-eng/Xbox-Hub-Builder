@@ -656,6 +656,22 @@ def atomic_write_new(path: Path, data: bytes, mode: int = 0o644) -> None:
         except FileNotFoundError:
             pass
 
+def atomic_replace_bytes(path: Path, data: bytes, mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=".xboxhub-replace-", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temp_name, mode)
+        os.replace(temp_name, path)
+    finally:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+
 
 def http_verify_published(stable_dir: Path, package_name: str, package: bytes, envelope: bytes) -> None:
     manifest_url = f"https://{PACKAGE_HOST}/stable/manifest.json"
@@ -681,6 +697,7 @@ def publish_candidate(config: Config, metadata: dict[str, Any], header: dict[str
     config.stable_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = config.stable_dir / "manifest.json"
     current = verify_existing_manifest(manifest_path)
+    previous_manifest_bytes = manifest_path.read_bytes() if manifest_path.exists() else None
     payload = json_loads_strict(base64.b64decode(json_loads_strict(envelope).get("payload", ""), validate=True))
     if current is not None:
         current_seq = current.get("releaseSequence", 0)
@@ -702,20 +719,17 @@ def publish_candidate(config: Config, metadata: dict[str, Any], header: dict[str
     else:
         atomic_write_new(package_path, package)
     # Manifest is the commit point: clients do not discover a candidate until it is replaced last.
-    fd, temp_name = tempfile.mkstemp(prefix=".xboxhub-manifest-", suffix=".tmp", dir=str(config.stable_dir))
+    atomic_replace_bytes(manifest_path, envelope)
     try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(envelope)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(temp_name, 0o644)
-        os.replace(temp_name, manifest_path)
-    finally:
-        try:
-            os.unlink(temp_name)
-        except FileNotFoundError:
-            pass
-    http_verify_published(config.stable_dir, header["originalFileName"], package, envelope)
+        http_verify_published(config.stable_dir, header["originalFileName"], package, envelope)
+    except Exception:
+        # Do not leave a newly committed manifest active if the public HTTPS
+        # endpoint fails its exact-byte check. Preserve the prior stable feed.
+        if previous_manifest_bytes is None:
+            manifest_path.unlink(missing_ok=True)
+        else:
+            atomic_replace_bytes(manifest_path, previous_manifest_bytes)
+        raise
     config.state_file.parent.mkdir(parents=True, exist_ok=True)
     state = {
         "version": payload["version"],
@@ -762,6 +776,17 @@ def run_once(config: Config, vault: OciVaultCrypto | None = None) -> str:
         if candidate_sequence == current_sequence:
             if current.get("version") != candidate_version or current.get("packageSha256") != metadata.get("packageSha256"):
                 fail("Release sequence is already occupied by a different candidate identity.")
+            package_name = metadata.get("packageFileName")
+            if not isinstance(package_name, str) or not PACKAGE_NAME_RE.fullmatch(package_name):
+                fail("Current candidate package filename is invalid.")
+            package_path = config.stable_dir / package_name
+            if not package_path.is_file():
+                fail("Stable manifest is current but its immutable package file is missing.")
+            package = package_path.read_bytes()
+            if len(package) != metadata.get("packageSize") or hashlib.sha256(package).hexdigest() != metadata.get("packageSha256"):
+                fail("Stable manifest is current but its local package bytes do not match candidate metadata.")
+            manifest_bytes = manifest_path.read_bytes()
+            http_verify_published(config.stable_dir, package_name, package, manifest_bytes)
             return "already-current"
     if vault is None:
         fail("OCI Vault client is required for a new stable release.")
