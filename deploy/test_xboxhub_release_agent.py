@@ -434,6 +434,109 @@ class ReleaseAgentTests(unittest.TestCase):
             self.assertTrue((stable_dir / package_name).is_file())
             self.assertFalse(config.state_file.exists())
 
+    def test_persistent_release_state_prevents_downgrade_when_manifest_is_missing(self):
+        package = make_plain_package()
+        old_hash = hashlib.sha256(package).hexdigest()
+        old_metadata = {
+            "schemaVersion": 1,
+            "productId": "xbox-hub-for-pc",
+            "channel": "stable",
+            "version": "0.1.10",
+            "releaseSequence": agent.release_sequence("0.1.10"),
+            "platform": "windows",
+            "architecture": "x64",
+            "packageFileName": "XboxHub-0.1.10-win-x64.zip",
+            "packageSize": len(package),
+            "packageSha256": old_hash,
+            "minimumUpdaterVersion": "0.1.9",
+            "sourceSha": "e" * 40,
+            "builderRunId": 1001,
+            "builderRunAttempt": 1,
+            "title": "Older candidate",
+            "date": "2026-11-24",
+            "changes": ["Older candidate must not roll back the feed."],
+        }
+        current_state = {
+            "version": "0.1.11",
+            "releaseSequence": agent.release_sequence("0.1.11"),
+            "packageSha256": "b" * 64,
+            "sourceSha": "f" * 40,
+            "builderRunId": 1002,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            stable_dir = Path(directory) / "stable"
+            stable_dir.mkdir()
+            state_path = Path(directory) / "state" / "state.json"
+            state_path.parent.mkdir()
+            state_path.write_text(json.dumps(current_state), encoding="utf-8")
+            config = agent.Config(
+                crypto_endpoint="https://kms.example.invalid",
+                package_key_ocid="package-key",
+                package_key_version_ocid="package-version",
+                signing_key_ocid="signing-key",
+                signing_key_version_ocid="signing-version",
+                stable_dir=stable_dir,
+                state_file=state_path,
+                auto_publish_enabled=True,
+            )
+            with patch.object(agent, "latest_candidate_artifact", return_value=({}, old_metadata, {})):
+                with self.assertRaisesRegex(RuntimeError, "persistent successful-publication state"):
+                    agent.run_once(config, None)
+            self.assertFalse((stable_dir / "manifest.json").exists())
+
+    def test_publisher_itself_rejects_downgrade_against_persistent_state(self):
+        package = make_plain_package()
+        package_name = "XboxHub-0.1.10-win-x64.zip"
+        package_hash = hashlib.sha256(package).hexdigest()
+        payload = {
+            "schemaVersion": 1,
+            "productId": "xbox-hub-for-pc",
+            "channel": "stable",
+            "version": "0.1.10",
+            "releaseSequence": agent.release_sequence("0.1.10"),
+            "packageSha256": package_hash,
+        }
+        envelope = json.dumps({
+            "keyId": agent.RELEASE_KEY_ID,
+            "payload": base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode(),
+            "signature": base64.b64encode(b"test-signature").decode(),
+        }).encode()
+        state = {
+            "version": "0.1.11",
+            "releaseSequence": agent.release_sequence("0.1.11"),
+            "packageSha256": "b" * 64,
+            "sourceSha": "f" * 40,
+            "builderRunId": 1002,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            stable_dir = Path(directory) / "stable"
+            stable_dir.mkdir()
+            state_path = Path(directory) / "state" / "state.json"
+            state_path.parent.mkdir()
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            config = agent.Config(
+                crypto_endpoint="https://kms.example.invalid",
+                package_key_ocid="package-key",
+                package_key_version_ocid="package-version",
+                signing_key_ocid="signing-key",
+                signing_key_version_ocid="signing-version",
+                stable_dir=stable_dir,
+                state_file=state_path,
+                auto_publish_enabled=True,
+            )
+            metadata = {"sourceSha": "e" * 40, "builderRunId": 1001}
+            with self.assertRaisesRegex(RuntimeError, "persistent successful-publication state"):
+                agent.publish_candidate(config, metadata, {"originalFileName": package_name}, package, envelope)
+            self.assertFalse((stable_dir / package_name).exists())
+            self.assertFalse((stable_dir / "manifest.json").exists())
+
+    def test_malformed_persistent_release_state_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            path.write_text('{"version":"0.1.11","releaseSequence":1000011,"releaseSequence":1}', encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "duplicate property"):
+                agent.load_release_state(path)
+
     def test_artifact_extraction_requires_exactly_one_expected_file(self):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
