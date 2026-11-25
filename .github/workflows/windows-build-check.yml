@@ -52,8 +52,6 @@ jobs:
           set -euo pipefail
           if [[ -n "${REQUESTED_SOURCE_REF}" ]]; then
             source_ref="${REQUESTED_SOURCE_REF}"
-          elif [[ "${GITHUB_EVENT_NAME}" == "push" && -f ".github/xbox-hub-pr13-validation-trigger.txt" ]]; then
-            source_ref="$(tr -d '\r\n' < .github/xbox-hub-pr13-validation-trigger.txt)"
           else
             source_ref="main"
           fi
