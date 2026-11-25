@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for a new Xbox Hub stable candidate every ten minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+RandomizedDelaySec=45s
+Persistent=true
+Unit=xboxhub-release-agent.service
+
+[Install]
+WantedBy=timers.target
