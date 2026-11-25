@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import secrets
 import struct
 import sys
 import tempfile
@@ -35,6 +36,7 @@ GITHUB_REPO = "loudply0-eng/Xbox-Hub-Builder"
 WORKFLOW_ID = 428075352
 ARTIFACT_NAME = "xboxhub-encrypted-offline-package"
 PACKAGE_KEY_ID = "xboxhub-package-rsa3072-b845262d34ea685b"
+PACKAGE_PUBLIC_KEY_SPKI_B64 = "MIIBojANBgkqhkiG9w0BAQEFAAOCAYEAnRC/9ASAHsBTtsqiyW1VNbhtiU8pN7a4r2gFEEkibvwctEYfdKpBTs9st1Og5JcNBrDS6/cl7gAj/d54ahDxKV0ApX66Io3EKkwV0zhQsYxjN14P8Gjpzf7ZB701da8mES1Go1GdUcdJE2Iz2qo/ANZ2ZEdJQuqzRuCbP8ommXcawNk8EU46kWcE4EYi/hDrYspWybxXKtRIxlxfdG1aJ7eucUST7NvSuvyJ762X0RCVstFci5iR/Bpk75YHXt0H9zOtmuBYGg8kajhj4FdgEbFuLh+c9GAlWlxMY6ZOQCU2bKHUiN/baLn6ytICR/XgGHojhLhMC5xtiIP/gwTY4A9Q8NIFrwC0NmBYzWpTKtULY/tUutt2aIJzsT32q9iuX5JuTSrKFe12rpIwhMWqbnFJxSiiKAmM/dqFMA6Wz/XVFFCxT14f6kzcD4ufsyWJsvnairtcikACwYEVApA5cympzb99rk1r1Y0dU+oYvmDePjRUS/AfX0LUWKexI/oZAgMBAAE="
 RELEASE_KEY_ID = "xboxhub-rsa3072-9986345089cc1513"
 RELEASE_PUBLIC_KEY_SPKI_B64 = (
     "MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAjdjBmNbij7n3n/lHFpe5t6kGOsMNFMZgPvWt6NDpvMwHlswExi0/c4x+BjOQsYephTSjTyrF3yj7aLLE0OhXTtOEu1OU7aTApK8dPaLdEAWokVwCy1sVspAclOw9gqBaDuPXp5/8DdzsO5IWTm5xvZF7eJfH7Sjn0ET7b5yvS7jtVuJNhK4ujUmB/m7AAftBbh2Gur6MonFDj1gQlRauCzp5A/mozegZwnhLtkB+YkOBq1ey16SwFaVgilL5QjqGW+R3ODQ2muhfha7L2ZUI/lNdSwpVsS0n6OXJQEMyyQlGnZ8CcTX+9yo2YXgwaFiBLBJaFceQxYA4K7+f9JJHLFZxX3ig+YeywL1EJYE5lTiqHg/VoFi5zzsjtgQhbGmZ3myhzcQOsHi2OFSOYJhhPtyhULVyiIXYYEP07svlDOOEwA0wSLLoTw1cAXMWa0R6Cv/pD39FUnORgOgl4iijQry7NeHfQYeoL5sUQAk9mzq6BdvF0eiGmjTOAmlEszTRAgMBAAE="
@@ -143,6 +145,36 @@ class OciVaultCrypto:
         )
         response = self.client.sign(model).data
         return base64.b64decode(response.signature, validate=True)
+    def self_test(self) -> None:
+        package_der = base64.b64decode(PACKAGE_PUBLIC_KEY_SPKI_B64, validate=True)
+        package_public = serialization.load_der_public_key(package_der)
+        if not isinstance(package_public, rsa.RSAPublicKey) or package_public.key_size != 3072:
+            fail("Embedded package recipient key is not RSA-3072.")
+        package_fingerprint = hashlib.sha256(package_der).hexdigest()[:16]
+        if "xboxhub-package-rsa3072-" + package_fingerprint != PACKAGE_KEY_ID:
+            fail("Embedded package recipient key fingerprint is inconsistent.")
+
+        test_aes_key = secrets.token_bytes(32)
+        wrapped = package_public.encrypt(
+            test_aes_key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+        unwrapped = self.unwrap_aes_key(base64.b64encode(wrapped).decode("ascii"))
+        if not hmac.compare_digest(test_aes_key, unwrapped):
+            fail("Vault package-decryption key does not match the app's embedded recipient public key.")
+
+        signing_public = load_trusted_public_key()
+        challenge = b"XboxHub-OCI-Vault-self-test-v1\n" + secrets.token_bytes(32)
+        signature = self.sign(challenge)
+        try:
+            signing_public.verify(signature, challenge, padding.PKCS1v15(), hashes.SHA256())
+        except InvalidSignature as exc:
+            raise RuntimeError("Vault release-signing key does not match the public key embedded in the app.") from exc
+        print("PASS: OCI Instance Principal can use the exact package-decryption key and app-trusted release-signing key.")
 
 
 def http_json(url: str) -> Any:
@@ -647,12 +679,20 @@ def run_once(config: Config, vault: OciVaultCrypto | None = None) -> str:
 
 
 def main() -> int:
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check-only", action="store_true", help="Verify OCI instance-principal access to both exact Xbox Hub Vault keys without publishing.")
+    args = parser.parse_args()
     try:
         config = Config.from_env()
-        if not config.auto_publish_enabled:
-            print("Xbox Hub release agent result: publishing-disabled")
+        if not args.check_only and not config.auto_publish_enabled:
+            print("Xbox Hub release-agent result: publishing-disabled")
             return 0
         vault = OciVaultCrypto(config)
+        if args.check_only:
+            vault.self_test()
+            print("Xbox Hub OCI Vault self-test completed. No release was downloaded or published.")
+            return 0
         result = run_once(config, vault)
         print("Xbox Hub release-agent result: " + result)
         return 0
