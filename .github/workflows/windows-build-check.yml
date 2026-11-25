@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: loudply0-eng/Xbox-Hub-for-PC
-          ref: ${{ needs.detect-private-source-revision.outputs.source_sha }}
+          ref: main
           ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
           path: private-source
           persist-credentials: false
@@ -64,9 +64,8 @@ jobs:
 
   build-private-windows-app:
     needs: detect-private-source-revision
-    if: github.event_name != 'schedule' || needs.detect-private-source-revision.outputs.source_changed == 'true'
     # This job uses the private-source deploy key. Never run it from untrusted refs.
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || needs.detect-private-source-revision.outputs.source_changed == 'true')
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -75,7 +74,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: loudply0-eng/Xbox-Hub-for-PC
-          ref: main
+          ref: ${{ needs.detect-private-source-revision.outputs.source_sha }}
           ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
           path: private-source
           persist-credentials: false
