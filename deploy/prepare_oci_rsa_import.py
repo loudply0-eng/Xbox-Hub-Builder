@@ -97,10 +97,11 @@ def wrap_private_key_material(
                 label=None,
             ),
         )
+        # cryptography's AES-KW-PAD implementation uses RFC 5649's
+        # specified default IV (A6 59 59 A6), matching OCI's import format.
         wrapped_private_key = aes_key_wrap_with_padding(
             bytes(temporary_aes_key),
             pkcs8_der,
-            iv=ORACLE_AES_WRAP_IV,
         )
         return wrapped_aes_key + wrapped_private_key, actual_key_id
     finally:
