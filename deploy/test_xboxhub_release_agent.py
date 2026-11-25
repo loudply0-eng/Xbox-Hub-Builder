@@ -235,7 +235,7 @@ class ReleaseAgentTests(unittest.TestCase):
                 "releaseSequence": 1_000_011,
                 "packageSha256": "a" * 64,
             }
-            with patch.object(agent, "latest_candidate_artifact", return_value=({}, metadata, "https://github.com/package-artifact")):
+            with patch.object(agent, "latest_candidate_artifact", return_value=({}, metadata, {"url": "https://github.com/package-artifact", "digest": "sha256:" + ("b" * 64), "size": 1000})):
                 with patch.object(agent, "load_trusted_public_key", return_value=public_key):
                     with patch.object(agent, "download_encrypted_package", side_effect=AssertionError("large artifact must not be downloaded")):
                         self.assertEqual(agent.run_once(config, None), "already-current")
@@ -286,8 +286,8 @@ class ReleaseAgentTests(unittest.TestCase):
                 return {"workflow_runs": [run]}
             if "/actions/runs/123/artifacts" in url:
                 return {"artifacts": [
-                    {"name": "xboxhub-release-metadata", "expired": False, "archive_download_url": "https://github.com/meta-artifact"},
-                    {"name": "xboxhub-encrypted-offline-package", "expired": False, "archive_download_url": package_url},
+                    {"name": "xboxhub-release-metadata", "expired": False, "archive_download_url": "https://github.com/meta-artifact", "size_in_bytes": 1024, "digest": "sha256:" + hashlib.sha256(metadata_archive).hexdigest()},
+                    {"name": "xboxhub-encrypted-offline-package", "expired": False, "archive_download_url": package_url, "size_in_bytes": 1000, "digest": "sha256:" + ("b" * 64)},
                 ]}
             if "/git/ref/tags/xboxhub-source-" in url:
                 return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": source_sha}}
@@ -306,7 +306,8 @@ class ReleaseAgentTests(unittest.TestCase):
         self.assertIsNotNone(found)
         self.assertEqual(found[0], run)
         self.assertEqual(found[1], metadata)
-        self.assertEqual(found[2], package_url)
+        self.assertEqual(found[2]["url"], package_url)
+        self.assertEqual(found[2]["digest"], "sha256:" + ("b" * 64))
         self.assertEqual(calls, ["https://github.com/meta-artifact"])
 
 
