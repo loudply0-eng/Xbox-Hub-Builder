@@ -56,7 +56,7 @@ This is a **0.1.11 candidate handoff**, not a published stable release. The pack
 
 The 0.1.11 app checks the signed stable feed at startup and automatically downloads and installs a newer release only after the embedded RSA-3072 public key verifies the manifest and the package passes exact byte-count and SHA-256 checks. A 12-hour background check does not restart the app mid-session; an update found then is installed on the next launch. The separate updater retains backup and rollback protection.
 
-The dedicated HTTPS host has previously passed DNS, same-host HTTP-to-HTTPS redirect, and TLS validation in [health-check run 45320477641](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45320477641). That check returned HTTP 404 for `/stable/manifest.json` on 2026-11-24. The host has not been rechecked since that date, and no signed stable manifest or package has been published.
+The dedicated HTTPS host passed end-to-end verification in [health-check run 45542965810](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45542965810): DNS, exact HTTP-to-HTTPS redirect, TLS, RSA signature against the app's public key, and the 0.1.10 package's exact size/SHA-256, two-file ZIP layout, and CRCs. The currently verified stable feed is **0.1.10**, not 0.1.11. The 0.1.11 package from build #53 remains an encrypted candidate handoff pending Windows acceptance and controlled publication.
 
 ## OCI publication status
 
@@ -71,7 +71,7 @@ The Oracle release agent and one-time installation assets are prepared in `deplo
 
 Automatic publication is **disabled by default** in `deploy/xboxhub-release-agent.env.example`. The agent does not publish the first candidate until the owner has manually accepted that exact Windows build and explicitly enables the setting. Once that initial acceptance is completed, later stable candidates can be signed and published automatically. Preview versions are never sent to the stable feed.
 
-**The OCI resources and Oracle VM service have not yet been configured.** The Vault keys have not been imported, the Dynamic Group and IAM policies have not been created, the installation script has not been run on the Oracle VM, and no stable manifest or package has been published. The repository tools can modify GitHub, but they do not provide an authenticated OCI Console or Oracle VM session. See [deploy/README.md](deploy/README.md) for the remaining one-time setup.
+**The OCI resources and Oracle VM release-agent service have not yet been configured.** The Vault keys have not been imported, the Dynamic Group and IAM policies have not been created, and the installation script has not been run on the Oracle VM. The existing 0.1.10 feed is independently verified, but automatic publication of future candidates is not yet active. The repository tools can modify GitHub, but they do not provide an authenticated OCI Console or Oracle VM session. See [deploy/README.md](deploy/README.md) for the remaining one-time setup.
 
 ## Secret handling
 
