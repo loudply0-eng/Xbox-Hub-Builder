@@ -594,7 +594,10 @@ jobs:
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name xboxhub-encrypted-offline-package \
             --dir "$destination"
-          echo "Downloaded the encrypted package and non-secret release metadata."
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name xboxhub-release-metadata \
+            --dir "$destination"
+          echo "Downloaded the encrypted package and its separate non-secret metadata artifact."
 
       - name: Validate candidate metadata and publish a persistent handoff release
         env:

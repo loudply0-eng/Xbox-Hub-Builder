@@ -11,3 +11,6 @@ Security: execute only from public builder main; fetch private source with read-
 Automation validation: build after 0.1.11 implementation and release-readiness documentation update; verify exact-SHA private-source checkout, encrypted artifact handoff, and successful-source marker.
 
 2026-11-25 automation extension: publish only the authenticated encrypted package and non-secret metadata as a permanent GitHub prerelease per private-source SHA. No production keys, plaintext packages, or private source may be attached.
+
+
+2026-11-25 handoff fix: retrieve the encrypted package and release metadata from their separate Actions artifact names before prerelease publication.
