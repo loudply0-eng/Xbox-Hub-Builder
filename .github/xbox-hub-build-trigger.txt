@@ -1,7 +1,9 @@
-Xbox Hub private-source build validation trigger
-Request: build the 0.1.10 Windows x64 candidate so the owner can validate the signed stable update path from installed 0.1.9.
-Source version: 0.1.10
-Source commit: e3cfa8ebfe1c94ab788e757a861834947e4b3e00
-Scope: Windows x64 restore, WPF app and standalone updater publish, exact two-file ZIP validation, offline signing helper syntax and disposable-key positive/negative tests, encrypted package handoff and tamper tests, updater replacement and rollback tests.
-Update behavior: startup and 12-hour signed-feed checks; manual check in Updates and Settings; never download or install until the user explicitly chooses Download and install update.
-Security: XCL remains a separate optional GPL-2.0-only runtime and is not bundled in the app package. Production private keys and passphrases remain offline; CI uses disposable test keys and the public package-encryption key only. Upload only the encrypted .xhubenc artifact. Never upload plaintext package, private source, game data, or production private keys.
+Xbox Hub private-source build request
+Requested app version: 0.1.11
+Private source repository: loudply0-eng/Xbox-Hub-for-PC
+Private source branch: feature/automatic-in-app-updates
+Private source commit: e81a06bc2b5cf428014752897ce893a968731ff4
+Build target: Windows x64, self-contained WPF app and standalone updater.
+Validation: restore, publish app and updater, validate exact two-file ZIP, run disposable-key signing/encryption positive and negative tests, and updater replacement/rollback transaction tests.
+Update behavior: signed stable-feed check at startup; verified newer package is downloaded and installed automatically through isolated updater; active-session discoveries install on next launch; 12-hour background checks remain notification-only.
+Security: execute only from public builder main; fetch private source with read-only deploy key; persist-credentials=false; production signing/decryption private keys remain offline; CI uses disposable test keys and public package-encryption key only; upload only the encrypted .xhubenc artifact. Never upload plaintext package, private source, game data, or production private keys.
