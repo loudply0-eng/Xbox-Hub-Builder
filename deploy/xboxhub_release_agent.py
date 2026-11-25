@@ -76,6 +76,7 @@ class Config:
     signing_key_version_ocid: str
     stable_dir: Path
     state_file: Path
+    auto_publish_enabled: bool
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -101,6 +102,7 @@ class Config:
             signing_key_version_ocid=names["XBOXHUB_SIGNING_KEY_VERSION_OCID"],
             stable_dir=Path(os.getenv("XBOXHUB_STABLE_DIR", "/var/www/xbox-hub-updates/stable")),
             state_file=Path(os.getenv("XBOXHUB_STATE_FILE", "/var/lib/xboxhub-release-agent/state.json")),
+            auto_publish_enabled=os.getenv("XBOXHUB_RELEASE_AUTO_PUBLISH_ENABLED", "false").strip().lower() == "true",
         )
 
 
@@ -175,10 +177,28 @@ def http_download(url: str, max_bytes: int) -> bytes:
     return bytes(chunks)
 
 
-def latest_candidate_artifact() -> tuple[dict[str, Any], bytes, dict[str, Any]] | None:
+METADATA_ARTIFACT_NAME = "xboxhub-release-metadata"
+
+def extract_one_artifact_file(archive: bytes, expected_name: str, max_file_bytes: int) -> bytes:
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive), "r") as zf:
+            files = [item for item in zf.infolist() if not item.is_dir()]
+            if len(files) != 1 or Path(files[0].filename).name != expected_name:
+                fail("GitHub artifact did not contain exactly the expected file: " + expected_name)
+            if files[0].file_size <= 0 or files[0].file_size > max_file_bytes:
+                fail("GitHub artifact file exceeded the configured size limit.")
+            data = zf.read(files[0])
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError("GitHub artifact archive is not a valid ZIP file.") from exc
+    if len(data) > max_file_bytes:
+        fail("Extracted GitHub artifact file exceeded the configured size limit.")
+    return data
+
+
+def latest_candidate_artifact() -> tuple[dict[str, Any], dict[str, Any], str] | None:
     runs_url = (
         f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_ID}/runs"
-        "?branch=main&status=success&per_page=20"
+        "?branch=main&status=success&per_page=10"
     )
     runs = http_json(runs_url).get("workflow_runs", [])
     for run in runs:
@@ -189,36 +209,39 @@ def latest_candidate_artifact() -> tuple[dict[str, Any], bytes, dict[str, Any]] 
             continue
         artifacts_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}/artifacts?per_page=100"
         artifacts = http_json(artifacts_url).get("artifacts", [])
-        artifact = next(
+        metadata_artifact = next(
+            (a for a in artifacts if a.get("name") == METADATA_ARTIFACT_NAME and not a.get("expired")),
+            None,
+        )
+        package_artifact = next(
             (a for a in artifacts if a.get("name") == ARTIFACT_NAME and not a.get("expired")),
             None,
         )
-        if not artifact or not artifact.get("archive_download_url"):
+        if not metadata_artifact or not package_artifact:
+            continue
+        metadata_url = metadata_artifact.get("archive_download_url")
+        package_url = package_artifact.get("archive_download_url")
+        if not metadata_url or not package_url:
             continue
         try:
-            archive = http_download(artifact["archive_download_url"], MAX_ARTIFACT_BYTES)
+            metadata_archive = http_download(metadata_url, 256 * 1024)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 continue
             raise
-        with zipfile.ZipFile(io.BytesIO(archive), "r") as zf:
-            infos = zf.infolist()
-            if len(infos) != 2:
-                continue
-            metadata_info = next((i for i in infos if Path(i.filename).name == "xboxhub-release-metadata.json"), None)
-            encrypted_info = next((i for i in infos if i.filename.endswith(".xhubenc")), None)
-            if not metadata_info or not encrypted_info:
-                continue
-            if metadata_info.file_size > 64 * 1024 or encrypted_info.file_size > MAX_CONTAINER_BYTES:
-                fail("Release artifact file size is outside the configured limit.")
-            metadata = json_loads_strict(zf.read(metadata_info))
-            encrypted = zf.read(encrypted_info)
+        metadata_bytes = extract_one_artifact_file(
+            metadata_archive, "xboxhub-release-metadata.json", 64 * 1024
+        )
+        metadata = json_loads_strict(metadata_bytes)
         if not isinstance(metadata, dict) or metadata.get("channel") != "stable":
             continue
-        if not isinstance(metadata.get("version"), str) or not STABLE_VERSION_RE.fullmatch(metadata["version"]):
+        version = metadata.get("version")
+        if not isinstance(version, str) or not STABLE_VERSION_RE.fullmatch(version):
             continue
         if metadata.get("builderRunId") != run_id:
             fail("Release metadata run ID does not match its GitHub Actions run.")
+        if metadata.get("builderRunAttempt") != run.get("run_attempt", 1):
+            fail("Release metadata run attempt does not match its GitHub Actions run.")
         source_sha = metadata.get("sourceSha", "")
         if not isinstance(source_sha, str) or not SOURCE_SHA_RE.fullmatch(source_sha):
             fail("Release metadata contains an invalid source revision.")
@@ -229,11 +252,23 @@ def latest_candidate_artifact() -> tuple[dict[str, Any], bytes, dict[str, Any]] 
             if exc.code == 404:
                 continue
             raise
-        if marker.get("ref") != f"refs/tags/xboxhub-source-{source_sha}":
+        marker_object = marker.get("object", {})
+        if (marker.get("ref") != f"refs/tags/xboxhub-source-{source_sha}" or
+                marker_object.get("sha") != source_sha):
             fail("Successful source-build marker does not match release metadata.")
-        return run, encrypted, metadata
+        if metadata.get("releaseSequence") != release_sequence(version):
+            fail("Release metadata sequence does not match its semantic version.")
+        return run, metadata, package_url
     return None
 
+
+def download_encrypted_package(package_artifact_url: str, metadata: dict[str, Any]) -> bytes:
+    archive = http_download(package_artifact_url, MAX_ARTIFACT_BYTES)
+    filename = metadata.get("packageFileName")
+    if not isinstance(filename, str) or not PACKAGE_NAME_RE.fullmatch(filename):
+        fail("Release metadata contains an invalid encrypted package filename.")
+    container = extract_one_artifact_file(archive, filename.removesuffix(".zip") + ".xhubenc", MAX_CONTAINER_BYTES)
+    return container
 
 def parse_container(container: bytes, expected_key_id: str) -> tuple[dict[str, Any], bytes]:
     if not 12 <= len(container) <= MAX_CONTAINER_BYTES:
@@ -518,20 +553,32 @@ def publish_candidate(config: Config, metadata: dict[str, Any], header: dict[str
     return "published"
 
 
-def run_once(config: Config, vault: OciVaultCrypto) -> str:
+def run_once(config: Config, vault: OciVaultCrypto | None = None) -> str:
+    if not config.auto_publish_enabled:
+        return "publishing-disabled"
     candidate = latest_candidate_artifact()
     if candidate is None:
         return "no-candidate-available"
-    run, encrypted, metadata = candidate
+    run, metadata, package_artifact_url = candidate
+    candidate_version = metadata["version"]
+    candidate_sequence = metadata["releaseSequence"]
+    manifest_path = config.stable_dir / "manifest.json"
+    current = verify_existing_manifest(manifest_path)
+    if current is not None:
+        current_sequence = current.get("releaseSequence", 0)
+        if type(current_sequence) is not int:
+            fail("Existing stable manifest release sequence is malformed.")
+        if candidate_sequence < current_sequence:
+            return "older-candidate-skipped"
+        if candidate_sequence == current_sequence:
+            if current.get("version") != candidate_version or current.get("packageSha256") != metadata.get("packageSha256"):
+                fail("Release sequence is already occupied by a different candidate identity.")
+            return "already-current"
+    if vault is None:
+        fail("OCI Vault client is required for a new stable release.")
+    encrypted = download_encrypted_package(package_artifact_url, metadata)
     header, package = decrypt_container(encrypted, vault.unwrap_aes_key)
     payload = validate_metadata(metadata, header, package)
-    current = verify_existing_manifest(config.stable_dir / "manifest.json")
-    if current is not None:
-        old_seq = current.get("releaseSequence", 0)
-        if type(old_seq) is int and payload["releaseSequence"] <= old_seq:
-            if payload["releaseSequence"] == old_seq and current.get("packageSha256") == payload["packageSha256"]:
-                return "already-current"
-            return "older-candidate-skipped"
     envelope = make_signed_envelope(payload, vault.sign)
     return publish_candidate(config, metadata, header, package, envelope)
 
@@ -539,6 +586,9 @@ def run_once(config: Config, vault: OciVaultCrypto) -> str:
 def main() -> int:
     try:
         config = Config.from_env()
+        if not config.auto_publish_enabled:
+            print("Xbox Hub release agent result: publishing-disabled")
+            return 0
         vault = OciVaultCrypto(config)
         result = run_once(config, vault)
         print("Xbox Hub release-agent result: " + result)
