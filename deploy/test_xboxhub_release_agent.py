@@ -213,7 +213,7 @@ class ReleaseAgentTests(unittest.TestCase):
         payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         signature = private_key.sign(payload_bytes, padding.PKCS1v15(), hashes.SHA256())
         envelope = {
-            "keyId": "xboxhub-rsa3072-test-key",
+            "keyId": agent.RELEASE_KEY_ID,
             "payload": base64.b64encode(payload_bytes).decode("ascii"),
             "signature": base64.b64encode(signature).decode("ascii"),
         }
