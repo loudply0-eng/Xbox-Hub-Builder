@@ -7,12 +7,12 @@ readonly ENV_FILE="/etc/xboxhub-release-worker.env"
 readonly RELEASE_DIR="/var/www/xbox-hub-updates/stable"
 readonly SOURCE_REPOSITORY="loudply0-eng/Xbox-Hub-Builder"
 readonly SOURCE_REVISION="545513e8e0eecc47e9ac75402cd980683217f18a"
-readonly BASE_URL="https://raw.githubusercontent.com/\${SOURCE_REPOSITORY}/\${SOURCE_REVISION}/oracle-release-worker"
+readonly BASE_URL="https://raw.githubusercontent.com/${SOURCE_REPOSITORY}/${SOURCE_REVISION}/oracle-release-worker"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 info() { printf '\n==> %s\n' "$*"; }
 
-[[ "\${EUID}" -eq 0 ]] || die "Run as root: sudo bash install.sh"
+[[ "${EUID}" -eq 0 ]] || die "Run as root: sudo bash install.sh"
 [[ -x /usr/bin/dnf ]] || die "This installer targets Oracle Linux 9 / DNF."
 id opc >/dev/null 2>&1 || die "The Oracle VM user 'opc' does not exist."
 
@@ -26,11 +26,11 @@ trap 'rm -rf "$tmp"' EXIT
 info "Downloading worker files from pinned public-builder revision"
 for file in xboxhub_release_worker.py requirements.txt xboxhub-release-worker.service xboxhub-release-worker.timer; do
     curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-        "\${BASE_URL}/\${file}" --output "\${tmp}/\${file}"
-    [[ -s "\${tmp}/\${file}" ]] || die "Downloaded file is empty: \${file}"
+        "${BASE_URL}/${file}" --output "${tmp}/${file}"
+    [[ -s "${tmp}/${file}" ]] || die "Downloaded file is empty: ${file}"
 done
 
-info "Installing worker into \${APP_DIR}"
+info "Installing worker into ${APP_DIR}"
 install -d -o root -g root -m 0755 "$APP_DIR"
 install -o root -g root -m 0644 "$tmp/xboxhub_release_worker.py" "$APP_DIR/xboxhub_release_worker.py"
 install -o root -g root -m 0644 "$tmp/requirements.txt" "$APP_DIR/requirements.txt"
