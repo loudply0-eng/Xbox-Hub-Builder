@@ -25,7 +25,7 @@ jobs:
     env:
       # Set this repository Actions variable to "true" after the first stable
       # publication. Before that deliberate activation, HTTP 404 is expected.
-      XBOXHUB_REQUIRE_STABLE_FEED: ${{ vars.XBOXHUB_REQUIRE_STABLE_FEED }}
+      XBOXHUB_REQUIRE_STABLE_FEED: "true"
 
     steps:
       - name: Check out public release-verification key
