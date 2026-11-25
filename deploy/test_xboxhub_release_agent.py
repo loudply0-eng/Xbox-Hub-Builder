@@ -61,6 +61,15 @@ def make_container(package: bytes, private_key, key_id: str, filename: str) -> b
 
 
 class ReleaseAgentTests(unittest.TestCase):
+    def test_embedded_package_recipient_key_fingerprint_matches_key_id(self):
+        public_der = base64.b64decode(agent.PACKAGE_PUBLIC_KEY_SPKI_B64, validate=True)
+        public_key = serialization.load_der_public_key(public_der)
+        self.assertIsInstance(public_key, rsa.RSAPublicKey)
+        self.assertEqual(public_key.key_size, 3072)
+        fingerprint = hashlib.sha256(public_der).hexdigest()[:16]
+        self.assertEqual("xboxhub-package-rsa3072-" + fingerprint, agent.PACKAGE_KEY_ID)
+
+
     def test_embedded_signing_key_fingerprint_matches_key_id(self):
         key = agent.load_trusted_public_key()
         self.assertGreaterEqual(key.key_size, 3072)
