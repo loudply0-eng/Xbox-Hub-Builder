@@ -31,12 +31,18 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m venv .venv
-          .venv/bin/python -m pip install --disable-pip-version-check "cryptography>=43,<48"
+          .venv/bin/python -m pip install --disable-pip-version-check -r deploy/requirements.txt
       - name: Compile release-agent modules
         shell: bash
         run: |
           set -euo pipefail
-          .venv/bin/python -m py_compile deploy/xboxhub_release_agent.py deploy/test_xboxhub_release_agent.py
+          .venv/bin/python -m py_compile deploy/xboxhub_release_agent.py deploy/prepare_oci_rsa_import.py deploy/test_xboxhub_release_agent.py
+          bash -n deploy/install-xboxhub-release-agent.sh
+      - name: Verify the OCI SDK crypto models used by the agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          .venv/bin/python -c "import oci; from oci.key_management.models import DecryptDataDetails, SignDataDetails; print(oci.__version__); DecryptDataDetails(key_id=\x27key\x27, ciphertext=\x27YQ==\x27, encryption_algorithm=\x27RSA_OAEP_SHA_256\x27); SignDataDetails(key_id=\x27key\x27, message=\x27YQ==\x27, message_type=\x27RAW\x27, signing_algorithm=\x27SHA_256_RSA_PKCS1_V1_5\x27)"
       - name: Run cryptographic and release-metadata regression tests
         shell: bash
         run: |
