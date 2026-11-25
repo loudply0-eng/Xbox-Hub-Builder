@@ -19,7 +19,6 @@ on:
       - main
     paths:
       - ".github/xbox-hub-build-trigger.txt"
-      - ".github/xbox-hub-pr13-validation-trigger.txt"
 
 permissions:
   contents: read
