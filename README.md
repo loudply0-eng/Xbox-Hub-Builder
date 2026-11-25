@@ -19,7 +19,7 @@ Public repository for reviewed build automation only.
 
 The source checkout uses the read-only `SOURCE_REPO_DEPLOY_KEY` Actions secret and sets `persist-credentials: false`. The private source is checked out only on the trusted `main` branch. The Windows workflow publishes into runner-temporary storage, validates the ZIP, tests the offline signer and package encryption with disposable keys, then encrypts the actual package for the owner's public recipient key. It uploads only the encrypted container with a three-day retention period. The production release-signing key and package-decryption private key are never used by CI.
 
-The Windows build workflow runs on manual dispatch or when the trusted build-trigger marker changes on `main`. It is a build-validation and encrypted-package handoff workflow; it is **not** a production release-signing or deployment workflow.
+The Windows build workflow runs on manual dispatch, when the trusted build-trigger marker changes on `main`, and through a lightweight 15-minute source-revision poll. The poll uses an Ubuntu runner to inspect the private source `main` commit and compare it with immutable `xboxhub-source-<sha>` tags in this public builder. A Windows build starts only for a previously unseen revision (or an explicit manual/marker trigger), checks out the exact detected commit, and records a tag only after successful validation. No Windows runner is used when the scheduled poll finds no new source revision. This automates build-and-encrypted-artifact handoff only; it does not sign or publish a production stable release. It is a build-validation and encrypted-package handoff workflow; it is **not** a production release-signing or deployment workflow.
 
 ## Latest Xbox Hub build — 2026-11-24
 
