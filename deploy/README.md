@@ -15,6 +15,8 @@ The agent also keeps a root-owned-by-service, mode-0600 publication ledger at `/
 
 **Publication by this Oracle agent is disabled by default.** A stable 0.1.10 feed is already present and has passed the external end-to-end signature/package verification in [health-check run 45542965810](https://github.com/loudply0-eng/Xbox-Hub-Builder/actions/runs/45542965810). Keep XBOXHUB_RELEASE_AUTO_PUBLISH_ENABLED=false until OCI is configured, the agent self-test passes, and the exact 0.1.11 candidate has been manually accepted on Windows. The next controlled release must be newer than the currently served 0.1.10.
 
+The external health-check workflow sets `XBOXHUB_REQUIRE_STABLE_FEED=true` directly on its manifest-probe step. A missing stable manifest (HTTP 404) is therefore a hard health-check failure; this does not depend on a repository Actions variable.
+
 ## 1. Create the two Vault HSM keys
 
 Use the existing encrypted Xbox Hub private-key files on the trusted Windows computer:
