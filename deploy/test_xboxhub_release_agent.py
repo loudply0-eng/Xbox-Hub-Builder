@@ -331,6 +331,93 @@ class ReleaseAgentTests(unittest.TestCase):
                 bad.getvalue(), "xboxhub-release-metadata.json", 64 * 1024
             )
 
+    def test_permanent_candidate_release_is_preferred_and_validated(self):
+        source_sha = "c" * 40
+        run = {
+            "id": 234,
+            "run_attempt": 1,
+            "head_branch": "main",
+            "conclusion": "success",
+            "status": "completed",
+            "workflow_id": agent.WORKFLOW_ID,
+            "path": ".github/workflows/windows-build-check.yml",
+        }
+        metadata = {
+            "schemaVersion": 1,
+            "productId": "xbox-hub-for-pc",
+            "channel": "stable",
+            "version": "0.1.11",
+            "releaseSequence": 1_000_011,
+            "platform": "windows",
+            "architecture": "x64",
+            "packageFileName": "XboxHub-0.1.11-win-x64.zip",
+            "packageSize": 12345,
+            "packageSha256": "a" * 64,
+            "minimumUpdaterVersion": "0.1.9",
+            "title": "Automatic updates at startup",
+            "date": "2026-11-25",
+            "changes": ["Installs verified releases at startup."],
+            "sourceSha": source_sha,
+            "builderRunId": 234,
+            "builderRunAttempt": 1,
+        }
+        metadata_bytes = json.dumps(metadata, separators=(",", ":")).encode("utf-8")
+        metadata_digest = "sha256:" + hashlib.sha256(metadata_bytes).hexdigest()
+        package_bytes = b"authenticated encrypted package bytes"
+        package_digest = "sha256:" + hashlib.sha256(package_bytes).hexdigest()
+        release = {
+            "draft": False,
+            "prerelease": True,
+            "tag_name": "xboxhub-candidate-" + source_sha,
+            "assets": [
+                {"name": "xboxhub-release-metadata.json", "size": len(metadata_bytes),
+                 "digest": metadata_digest, "browser_download_url": "https://github.com/meta"},
+                {"name": "XboxHub-0.1.11-win-x64.xhubenc", "size": len(package_bytes),
+                 "digest": package_digest, "browser_download_url": "https://github.com/package"},
+            ],
+        }
+        calls = []
+
+        def fake_json(url):
+            if url.endswith("/releases?per_page=50"):
+                return [release]
+            if url.endswith("/actions/runs/234"):
+                return run
+            if "/git/ref/tags/xboxhub-source-" in url:
+                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": source_sha}}
+            raise AssertionError("Unexpected GitHub API URL: " + url)
+
+        def fake_download(url, max_bytes):
+            calls.append(url)
+            if url == "https://github.com/meta":
+                return metadata_bytes
+            raise AssertionError("The encrypted release asset must not be downloaded during discovery.")
+
+        with patch.object(agent, "http_json", side_effect=fake_json):
+            with patch.object(agent, "http_download", side_effect=fake_download):
+                found = agent.latest_candidate_artifact()
+
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], run)
+        self.assertEqual(found[1], metadata)
+        self.assertEqual(found[2]["kind"], "release-asset")
+        self.assertEqual(found[2]["url"], "https://github.com/package")
+        self.assertEqual(found[2]["digest"], package_digest)
+        self.assertEqual(calls, ["https://github.com/meta"])
+
+    def test_permanent_release_asset_download_returns_raw_encrypted_bytes(self):
+        data = b"encrypted-xhub-container-test"
+        artifact = {
+            "kind": "release-asset",
+            "url": "https://github.com/package",
+            "digest": "sha256:" + hashlib.sha256(data).hexdigest(),
+            "size": len(data),
+        }
+        metadata = {"packageFileName": "XboxHub-0.1.11-win-x64.zip"}
+        with patch.object(agent, "http_download", return_value=data):
+            result = agent.download_encrypted_package(artifact, metadata)
+        self.assertEqual(result, data)
+
     def test_candidate_poll_reads_metadata_sidecar_without_downloading_package(self):
         source_sha = "a" * 40
         run = {
@@ -355,6 +442,8 @@ class ReleaseAgentTests(unittest.TestCase):
         calls = []
 
         def fake_json(url):
+            if url.endswith("/releases?per_page=50"):
+                return []
             if "/actions/workflows/" in url:
                 return {"workflow_runs": [run]}
             if "/actions/runs/123/artifacts" in url:
