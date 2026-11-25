@@ -457,7 +457,7 @@ class ReleaseAgentTests(unittest.TestCase):
                     {"name": "xboxhub-encrypted-offline-package", "expired": False, "archive_download_url": package_url, "size_in_bytes": 1000, "digest": "sha256:" + ("b" * 64)},
                 ]}
             if "/git/ref/tags/xboxhub-source-" in url:
-                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": run["head_sha"]}}
+                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": run["head_sha"], "type": "commit"}}
             raise AssertionError("Unexpected GitHub API URL: " + url)
 
         def fake_download(url, max_bytes):
