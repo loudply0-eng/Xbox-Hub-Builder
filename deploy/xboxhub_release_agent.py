@@ -36,7 +36,7 @@ ARTIFACT_NAME = "xboxhub-encrypted-offline-package"
 PACKAGE_KEY_ID = "xboxhub-package-rsa3072-b845262d34ea685b"
 RELEASE_KEY_ID = "xboxhub-rsa3072-9986345089cc1513"
 RELEASE_PUBLIC_KEY_SPKI_B64 = (
-    "MIIBojANBgkqhkiG9w0BAQEFAAOCAYEAnRC/9ASAHsBTtsqiyW1VNbhtiU8pN7a4r2gFEEkibvwctEYfdKpBTs9st1Og5JcNBrDS6/cl7gAj/d54ahDxKV0ApX66Io3EKkwV0zhQsYxjN14P8Gjpzf7ZB701da8mES1Go1GdUcdJE2Iz2qo/ANZ2ZEdJQuqzRuCbP8ommXcawNk8EU46kWcE4EYi/hDrYspWybxXKtRIxlxfdG1aJ7eucUST7NvSuvyJ762X0RCVstFci5iR/Bpk75YHXt0H9zOtmuBYGg8kajhj4FdgEbFuLh+c9GAlWlxMY6ZOQCU2bKHUiN/baLn6ytICR/XgGHojhLhMC5xtiIP/gwTY4A9Q8NIFrwC0NmBYzWpTKtULY/tUutt2aIJzsT32q9iuX5JuTSrKFe12rpIwhMWqbnFJxSiiKAmM/dqFMA6Wz/XVFFCxT14f6kzcD4ufsyWJsvnairtcikACwYEVApA5cympzb99rk1r1Y0dU+oYvmDePjRUS/AfX0LUWKexI/oZAgMBAAE="
+    "MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAjdjBmNbij7n3n/lHFpe5t6kGOsMNFMZgPvWt6NDpvMwHlswExi0/c4x+BjOQsYephTSjTyrF3yj7aLLE0OhXTtOEu1OU7aTApK8dPaLdEAWokVwCy1sVspAclOw9gqBaDuPXp5/8DdzsO5IWTm5xvZF7eJfH7Sjn0ET7b5yvS7jtVuJNhK4ujUmB/m7AAftBbh2Gur6MonFDj1gQlRauCzp5A/mozegZwnhLtkB+YkOBq1ey16SwFaVgilL5QjqGW+R3ODQ2muhfha7L2ZUI/lNdSwpVsS0n6OXJQEMyyQlGnZ8CcTX+9yo2YXgwaFiBLBJaFceQxYA4K7+f9JJHLFZxX3ig+YeywL1EJYE5lTiqHg/VoFi5zzsjtgQhbGmZ3myhzcQOsHi2OFSOYJhhPtyhULVyiIXYYEP07svlDOOEwA0wSLLoTw1cAXMWa0R6Cv/pD39FUnORgOgl4iijQry7NeHfQYeoL5sUQAk9mzq6BdvF0eiGmjTOAmlEszTRAgMBAAE="
 )
 PACKAGE_HOST = "updates.mahmoudaljuorany.store"
 MAX_PACKAGE_BYTES = 700 * 1024 * 1024
@@ -163,7 +163,7 @@ def http_download(url: str, max_bytes: int) -> bytes:
         if response.status != 200:
             fail("GitHub artifact download did not return HTTP 200.")
         final_url = urllib.parse.urlsplit(response.geturl())
-        if final_url.scheme != "https" or final_url.hostname not in ("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"):
+        if final_url.scheme != "https" or not (final_url.hostname in ("github.com", "api.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com") or final_url.hostname.endswith(".blob.core.windows.net")):
             fail("Artifact download redirected to an unexpected host.")
         while True:
             part = response.read(1024 * 1024)
@@ -195,7 +195,12 @@ def latest_candidate_artifact() -> tuple[dict[str, Any], bytes, dict[str, Any]]:
         )
         if not artifact or not artifact.get("archive_download_url"):
             continue
-        archive = http_download(artifact["archive_download_url"], MAX_ARTIFACT_BYTES)
+        try:
+            archive = http_download(artifact["archive_download_url"], MAX_ARTIFACT_BYTES)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                continue
+            raise
         with zipfile.ZipFile(io.BytesIO(archive), "r") as zf:
             infos = zf.infolist()
             if len(infos) != 2:
@@ -223,7 +228,7 @@ def latest_candidate_artifact() -> tuple[dict[str, Any], bytes, dict[str, Any]]:
         if marker.get("ref") != f"refs/tags/xboxhub-source-{source_sha}":
             fail("Successful source-build marker does not match release metadata.")
         return run, encrypted, metadata
-    fail("No recent successful encrypted candidate with verified source marker and release metadata was found.")
+    return None
 
 
 def parse_container(container: bytes, expected_key_id: str) -> tuple[dict[str, Any], bytes]:
@@ -413,9 +418,11 @@ def atomic_write_new(path: Path, data: bytes, mode: int = 0o644) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.chmod(temp_name, mode)
-        if path.exists():
+        try:
+            os.link(temp_name, path)
+        except FileExistsError:
             fail("Refusing to overwrite immutable release package: " + path.name)
-        os.replace(temp_name, path)
+        os.unlink(temp_name)
     finally:
         try:
             os.unlink(temp_name)
@@ -508,7 +515,10 @@ def publish_candidate(config: Config, metadata: dict[str, Any], header: dict[str
 
 
 def run_once(config: Config, vault: OciVaultCrypto) -> str:
-    run, encrypted, metadata = latest_candidate_artifact()
+    candidate = latest_candidate_artifact()
+    if candidate is None:
+        return "no-candidate-available"
+    run, encrypted, metadata = candidate
     header, package = decrypt_container(encrypted, vault.unwrap_aes_key)
     payload = validate_metadata(metadata, header, package)
     current = verify_existing_manifest(config.stable_dir / "manifest.json")
