@@ -636,6 +636,38 @@ def verify_existing_manifest(path: Path) -> dict[str, Any] | None:
     return payload
 
 
+def load_release_state(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    state = json_loads_strict(path.read_bytes())
+    if not isinstance(state, dict):
+        fail("Persistent release state is not a JSON object.")
+    version = state.get("version")
+    sequence = state.get("releaseSequence")
+    package_hash = state.get("packageSha256")
+    source_sha = state.get("sourceSha")
+    builder_run_id = state.get("builderRunId")
+    if (not isinstance(version, str) or not STABLE_VERSION_RE.fullmatch(version) or
+            type(sequence) is not int or sequence != release_sequence(version) or
+            not isinstance(package_hash, str) or not HEX_SHA_RE.fullmatch(package_hash) or
+            not isinstance(source_sha, str) or not SOURCE_SHA_RE.fullmatch(source_sha) or
+            type(builder_run_id) is not int or builder_run_id <= 0):
+        fail("Persistent release state is malformed; refusing to risk a stable-channel rollback.")
+    return state
+
+
+def enforce_release_state(state: dict[str, Any] | None, version: str, sequence: int, package_hash: str) -> None:
+    if state is None:
+        return
+    state_sequence = state["releaseSequence"]
+    if sequence < state_sequence:
+        fail("Candidate is older than the persistent successful-publication state; refusing rollback.")
+    if sequence == state_sequence and (
+        version != state["version"] or package_hash != state["packageSha256"]
+    ):
+        fail("Persistent release sequence is already occupied by different package bytes.")
+
+
 def atomic_write_new(path: Path, data: bytes, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=".xboxhub-", suffix=".tmp", dir=str(path.parent))
@@ -699,6 +731,16 @@ def publish_candidate(config: Config, metadata: dict[str, Any], header: dict[str
     current = verify_existing_manifest(manifest_path)
     previous_manifest_bytes = manifest_path.read_bytes() if manifest_path.exists() else None
     payload = json_loads_strict(base64.b64decode(json_loads_strict(envelope).get("payload", ""), validate=True))
+    new_version = payload.get("version")
+    new_sequence = payload.get("releaseSequence")
+    new_package_hash = payload.get("packageSha256")
+    if (not isinstance(new_version, str) or type(new_sequence) is not int or
+            not isinstance(new_package_hash, str) or not HEX_SHA_RE.fullmatch(new_package_hash) or
+            new_sequence != release_sequence(new_version)):
+        fail("Signed candidate manifest has an invalid stable release identity.")
+    enforce_release_state(
+        load_release_state(config.state_file), new_version, new_sequence, new_package_hash
+    )
     if current is not None:
         current_seq = current.get("releaseSequence", 0)
         new_seq = payload.get("releaseSequence", 0)
@@ -767,6 +809,12 @@ def run_once(config: Config, vault: OciVaultCrypto | None = None) -> str:
     candidate_sequence = metadata["releaseSequence"]
     manifest_path = config.stable_dir / "manifest.json"
     current = verify_existing_manifest(manifest_path)
+    enforce_release_state(
+        load_release_state(config.state_file),
+        candidate_version,
+        candidate_sequence,
+        metadata["packageSha256"],
+    )
     if current is not None:
         current_sequence = current.get("releaseSequence", 0)
         if type(current_sequence) is not int:
