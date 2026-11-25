@@ -64,3 +64,6 @@ sudo bash install.sh
 The installer downloads worker files from a pinned public-builder commit, installs Python dependencies, asks once for the five non-secret Vault endpoint/key OCID values, writes a root-owned `0640` environment file, installs the hardened systemd service and timer, and runs the first poll. It preserves an existing environment file. After installation, the timer polls every 15 minutes without Windows PowerShell or a GitHub token.
 
 The installer does not import private keys or create OCI IAM policies. Those owner/admin actions must be completed in OCI Console first. Initial Stable publication remains gated if no signed manifest already exists.
+
+
+The installer sets the Stable webroot to mode `2750` (setgid) with group `nginx`. Published ZIPs and `manifest.json` inherit that group and are written as `0640`, allowing nginx to serve new releases without making the directory world-writable.
