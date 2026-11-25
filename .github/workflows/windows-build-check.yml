@@ -2,6 +2,16 @@ name: Windows WPF build and package validation
 
 on:
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Trusted private Xbox Hub source ref to validate"
+        required: true
+        type: choice
+        options:
+          - main
+          - feature/defer-updates-during-known-game-sessions
+          - fix/prevent-failed-update-retry-loop
+        default: main
   schedule:
     - cron: '*/15 * * * *'
   push:
@@ -27,11 +37,11 @@ jobs:
       source_sha: ${{ steps.source.outputs.sha }}
       source_changed: ${{ steps.compare.outputs.changed }}
     steps:
-      - name: Check out private Xbox Hub source at main
+      - name: Check out selected trusted private Xbox Hub source ref
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: loudply0-eng/Xbox-Hub-for-PC
-          ref: main
+          ref: ${{ inputs.source_ref || 'main' }}
           ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
           path: private-source
           persist-credentials: false
