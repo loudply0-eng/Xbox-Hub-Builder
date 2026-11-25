@@ -28,6 +28,11 @@ jobs:
       XBOXHUB_REQUIRE_STABLE_FEED: ${{ vars.XBOXHUB_REQUIRE_STABLE_FEED }}
 
     steps:
+      - name: Check out public release-verification key
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
       - name: Verify public DNS points to the dedicated Oracle host
         shell: bash
         run: |
