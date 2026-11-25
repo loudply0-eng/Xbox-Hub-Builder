@@ -2,6 +2,8 @@ name: Windows WPF build and package validation
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
   push:
     branches:
       - main
@@ -16,9 +18,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect-private-source-revision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      source_changed: ${{ steps.compare.outputs.changed }}
+    steps:
+      - name: Check out private Xbox Hub source at main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: loudply0-eng/Xbox-Hub-for-PC
+          ref: main
+          ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
+          path: private-source
+          persist-credentials: false
+          submodules: false
+          lfs: false
+          fetch-depth: 1
+
+      - name: Read exact private-source revision
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C private-source rev-parse HEAD)"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Detected private source revision: $source_sha"
+
+      - name: Skip scheduled build when this revision was already built
+        id: compare
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          tag="xboxhub-source-$SOURCE_SHA"
+          if git ls-remote --exit-code "https://github.com/loudply0-eng/Xbox-Hub-Builder.git" "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "This private-source revision already has a successful build marker."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "This private-source revision has not been built successfully yet."
+          fi
+
   build-private-windows-app:
+    needs: detect-private-source-revision
     # This job uses the private-source deploy key. Never run it from untrusted refs.
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || needs.detect-private-source-revision.outputs.source_changed == 'true')
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -27,7 +74,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: loudply0-eng/Xbox-Hub-for-PC
-          ref: main
+          ref: ${{ needs.detect-private-source-revision.outputs.source_sha }}
           ssh-key: ${{ secrets.SOURCE_REPO_DEPLOY_KEY }}
           path: private-source
           persist-credentials: false
@@ -440,3 +487,34 @@ jobs:
           else {
             Write-Host "No package artifact was uploaded because the owner's public package-encryption key is not configured."
           }
+
+  record-successful-source-revision:
+    needs:
+      - detect-private-source-revision
+      - build-private-windows-app
+    if: success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Check out public builder repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Record successful build using an immutable source-revision tag
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.detect-private-source-revision.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          tag="xboxhub-source-$SOURCE_SHA"
+          if git ls-remote --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Build marker already exists: $tag"
+          else
+            git tag "$tag"
+            git push origin "refs/tags/$tag"
+            echo "Recorded successful build: $tag"
+          fi
