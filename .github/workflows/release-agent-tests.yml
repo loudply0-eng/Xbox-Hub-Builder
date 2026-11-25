@@ -42,7 +42,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          .venv/bin/python -c "import oci; from oci.key_management.models import DecryptDataDetails, SignDataDetails; print(oci.__version__); DecryptDataDetails(key_id=\x27key\x27, ciphertext=\x27YQ==\x27, encryption_algorithm=\x27RSA_OAEP_SHA_256\x27); SignDataDetails(key_id=\x27key\x27, message=\x27YQ==\x27, message_type=\x27RAW\x27, signing_algorithm=\x27SHA_256_RSA_PKCS1_V1_5\x27)"
+          .venv/bin/python - <<'PY'
+          import oci
+          from oci.key_management.models import DecryptDataDetails, SignDataDetails
+          print("OCI SDK version:", oci.__version__)
+          DecryptDataDetails(key_id="key", ciphertext="YQ==", encryption_algorithm="RSA_OAEP_SHA_256")
+          SignDataDetails(key_id="key", message="YQ==", message_type="RAW", signing_algorithm="SHA_256_RSA_PKCS1_V1_5")
+          PY
       - name: Run cryptographic and release-metadata regression tests
         shell: bash
         run: |
