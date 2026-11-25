@@ -45,3 +45,8 @@ When the stable manifest is absent, publication remains disabled until XHUB_ALLO
 ## Tests
 
 Tests use ephemeral RSA keys only and do not call OCI. Run python3 -m unittest -v from this directory.
+
+
+## Compatibility with the current stable feed
+
+The worker reads and verifies the existing signed Stable manifest in legacy-compatible mode so the previously deployed sequence (including the older 0.1.10 feed) remains usable. New candidates and every newly signed manifest must use the current deterministic semantic-version sequence. Legacy compatibility applies only to the already-published feed manifest; it does not relax candidate validation.
