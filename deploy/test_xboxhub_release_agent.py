@@ -425,6 +425,9 @@ class ReleaseAgentTests(unittest.TestCase):
             "run_attempt": 1,
             "head_branch": "main",
             "conclusion": "success",
+            "status": "completed",
+            "workflow_id": agent.WORKFLOW_ID,
+            "path": ".github/workflows/windows-build-check.yml",
         }
         metadata = {
             "channel": "stable",
