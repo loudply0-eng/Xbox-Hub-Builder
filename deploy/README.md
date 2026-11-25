@@ -134,7 +134,7 @@ sudo systemctl status xboxhub-release-agent.timer
 
 ## 4. Accept the next release, then enable automatic publication
 
-Keep XBOXHUB_RELEASE_AUTO_PUBLISH_ENABLED=false while manually decrypting and testing the exact first candidate on Windows. Confirm the app launches, the user library/settings are preserved, and the separate updater can replace/rollback files in a clean test profile.
+Keep XBOXHUB_RELEASE_AUTO_PUBLISH_ENABLED=false while manually decrypting and testing the exact 0.1.11 candidate on Windows. Confirm the app launches, the user library/settings are preserved, and the separate updater can replace/rollback files in a clean test profile.
 
 Only after that acceptance, change the flag in /etc/xboxhub-release-agent.env to:
 
@@ -149,7 +149,7 @@ sudo systemctl start xboxhub-release-agent.service
 sudo journalctl -u xboxhub-release-agent.service -n 100 --no-pager
 ~~~
 
-After the first successful publication, open the public builder repository Settings → Secrets and variables → Actions → Variables and create or set `XBOXHUB_REQUIRE_STABLE_FEED` to `true`. This switches the external weekly health check from allowing the pre-release HTTP 404 to requiring HTTP 200 for `/stable/manifest.json`. When HTTP 200 is returned, the workflow also verifies the manifest signature against the app's embedded public key, downloads the versioned package, checks exact size and SHA-256, and validates the two-file ZIP layout and CRCs. The variable is not a secret and does not grant permissions. The 10-minute systemd timer automatically checks for later stable build candidates. A newer stable version is accepted only after:
+The public HTTPS host already serves a verified stable 0.1.10 feed. Its scheduled external health workflow now requires HTTP 200 by default and, for every successful response, verifies the manifest signature against the app's embedded public key, downloads the versioned package, checks exact size and SHA-256, and validates the two-file ZIP layout and CRCs. No Actions variable is needed to make 404 fail. After the Oracle agent's first successful 0.1.11 publication, the 10-minute systemd timer automatically checks for later stable build candidates. A newer stable version is accepted only after:
 
 - the public builder run completed successfully;
 - its permanent candidate prerelease (or fallback Actions artifacts) has GitHub SHA-256 digests matching the downloaded asset bytes;
