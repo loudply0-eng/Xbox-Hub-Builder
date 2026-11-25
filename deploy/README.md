@@ -43,7 +43,7 @@ Install Python 3 if it is not already available. Open **Command Prompt** (not Po
 ~~~bat
 py -3 -m pip install --upgrade cryptography
 mkdir "%TEMP%\XboxHub-key-import"
-curl.exe -fL "https://raw.githubusercontent.com/loudply0-eng/Xbox-Hub-Builder/main/deploy/prepare_oci_rsa_import.py" -o "%TEMP%\XboxHub-key-import\prepare_oci_rsa_import.py"
+curl.exe -fL "https://raw.githubusercontent.com/loudply0-eng/Xbox-Hub-Builder/89f2ab1bd53ca0fbd59213b28360d0578ee500ed/deploy/prepare_oci_rsa_import.py" -o "%TEMP%\XboxHub-key-import\prepare_oci_rsa_import.py"
 ~~~
 
 Save the Vault's public wrapping key as:
@@ -91,10 +91,10 @@ Copy the Vault **Cryptographic Endpoint** (not the Management Endpoint) and the 
 
 The installer pins the downloaded agent, requirements, and systemd units to the audited source revision `80049aa2f8664a9507b53fff83e264832a7df26f`, which passed the x64 and ARM64 security-test matrix. This prevents a later unreviewed change on `main` from silently changing the deployed service. To deliberately test a newer revision, set `XBOXHUB_AGENT_REF` to its reviewed commit SHA when invoking the installer.
 
-From an authenticated SSH session to the update host, run:
+The bootstrap installer and local key-import helper are fetched from the reviewed builder commit `89f2ab1bd53ca0fbd59213b28360d0578ee500ed`, not from the moving `main` branch. From an authenticated SSH session to the update host, run:
 
 ~~~bash
-curl -fL "https://raw.githubusercontent.com/loudply0-eng/Xbox-Hub-Builder/main/deploy/install-xboxhub-release-agent.sh" -o /tmp/install-xboxhub-release-agent.sh
+curl -fL "https://raw.githubusercontent.com/loudply0-eng/Xbox-Hub-Builder/89f2ab1bd53ca0fbd59213b28360d0578ee500ed/deploy/install-xboxhub-release-agent.sh" -o /tmp/install-xboxhub-release-agent.sh
 sudo bash /tmp/install-xboxhub-release-agent.sh
 ~~~
 
