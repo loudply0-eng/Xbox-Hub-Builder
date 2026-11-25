@@ -385,7 +385,7 @@ class ReleaseAgentTests(unittest.TestCase):
             if url.endswith("/actions/runs/234"):
                 return run
             if "/git/ref/tags/xboxhub-source-" in url:
-                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": run["head_sha"]}}
+                return {"ref": f"refs/tags/xboxhub-source-{source_sha}", "object": {"sha": "f" * 40, "type": "commit"}}
             raise AssertionError("Unexpected GitHub API URL: " + url)
 
         def fake_download(url, max_bytes):
